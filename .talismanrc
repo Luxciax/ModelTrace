@@ -1,0 +1,12 @@
+fileignoreconfig:
+- filename: codex-plugin/build-plugin.mjs
+  checksum: 837fe6e16b7ffefc54348b59e835254172426a47059dad1b396752d20bdcd271
+- filename: codex-plugin/modeltrace-guard/assets/provenance.json
+  checksum: 68f9bf51de66ff45ebd5916dd57940db5e178d6b5d605c40b0733e54708d08
+- filename: data/FINGERPRINT-SOURCE.md
+  checksum: fbe87fa3be92f9968482d6acd0c38b9a12218b3c36e02e78970ae67386ae2254
+- filename: codex-plugin/modeltrace-guard/assets/unified_bank.json
+  checksum: c9f67b66f56b34b8922551aae764b5f800ed2326b0489ad4cf31bab281dcd019
+- filename: data/unified_bank.json
+  checksum: 19aa8f8383f990091b8691fefd034dc72b45034fe24fc4e49bf1faab29f8e765
+version: "1.0"
