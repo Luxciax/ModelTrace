@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  isMismatch, issue, newState, readState, sessionPath, updateConfirmation, validateConfig, withState,
+  classifySample, isMismatch, issue, newState, publicSample, readState, sessionPath, updateConfirmation, validateConfig, withState,
 } from '../scripts/state.mjs';
 import { handleHook, loadArtifacts } from '../scripts/guard.mjs';
 import { run } from './fixture-runner.mjs';
@@ -17,6 +17,32 @@ const numbers = JSON.stringify(Array.from({ length: 300 }, (_, i) => (i * 37 + 1
 const event = (hook_event_name, extra = {}) => ({ session_id: session, hook_event_name, turn_id: 'turn-1', ...extra });
 const flags = (dir) => ['--session', session, '--data-dir', dir];
 const command = (dir, name, ...args) => run([name, ...flags(dir), ...args], {});
+
+test('bank aliases compare against their shared class and preserve identity in public samples', async () => {
+  const { bank, analyzeGlobalOutputs } = await loadArtifacts();
+  const scored = analyzeGlobalOutputs([{ text: numbers, expected_count: 300 }], bank);
+  assert.equal(scored.results.length, 64);
+  assert.ok(scored.results.every((item) => Number.isFinite(item.score) && Number.isFinite(item.probability)));
+  for (const [expected, id] of [
+    ['gpt-6.1-sol', 'gpt-6-astra'],
+    ['claude-haiku-4-5-20251001', 'claude-haiku-4.5'],
+    ['claude-sonnet-4-6', 'claude-sonnet-4.6'],
+  ]) {
+    const candidate = scored.results.find((item) => item.model === id);
+    assert.ok(candidate.aliases.includes(expected));
+    const match = { ...candidate, probability: .9 };
+    const result = classifySample({ results: [match] }, expected);
+    const sample = { ...result, expected };
+    assert.equal(result.outcome, 'compatible');
+    assert.equal(result.expectedClass, id);
+    assert.equal(publicSample(sample).expectedClass, id);
+    assert.equal(isMismatch(sample), false);
+    const other = { ...scored.results.find((item) => item.model !== id), probability: .9 };
+    const different = classifySample({ results: [other, { ...candidate, probability: .05 }] }, expected);
+    assert.equal(different.outcome, 'difference_signal');
+    assert.equal(isMismatch({ ...different, expected }), true);
+  }
+});
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'modeltrace-retry-test-'));
   t.after(async () => {

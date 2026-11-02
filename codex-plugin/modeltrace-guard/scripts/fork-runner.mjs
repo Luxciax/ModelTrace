@@ -40,6 +40,11 @@ export async function prepareProbeFork(client, snapshot, cacheTransport = null) 
   return { response, effective };
 }
 
+function isLiveTurnBoundaryError(stage, error) {
+  return stage === 'fork_preparation'
+    && /lastTurnId[\s\S]*in-progress turn|identifies an in-progress turn/i.test(String(error?.message || ''));
+}
+
 export async function requireTrustedGuard(client, cwd) {
   const listing = await client.request('hooks/list', { cwds: [cwd] });
   const hooks = (listing.data || []).flatMap((entry) => entry.hooks || []).filter((hook) =>
@@ -190,6 +195,21 @@ export async function runForkProbe(directory, session, challenge, env = process.
     return result;
   } catch (error) {
     const diagnostic = { stage, ...(error instanceof ProbeOutputError ? error.diagnostic : { code: 'probe_failed' }) };
+    if (dependencies.background && isLiveTurnBoundaryError(stage, error)) {
+      const cancelled = await updateState((state) => {
+        if (!state.enabled || state.pending?.id !== challenge || state.epoch !== pending.epoch) return true;
+        // The persisted snapshot captured a live turn and cannot be reused.
+        // Keep the same checkpoint so the next turn hook can freeze a stable
+        // boundary without consuming a missed-probe slot.
+        state.pending.deferTurn = state.turn || null;
+        state.forkSnapshot = null;
+        state.forkHealth = { ready: false, deferred: true, checkedAt: Date.now(), error: error.message, diagnostic };
+        record(state, 'fork_probe_deferred', Date.now(), { challenge, reason: error.message, diagnostic, turn: state.turn || null });
+        return false;
+      });
+      if (cancelled) return { accepted: false, cancelled: true };
+      return { accepted: false, deferred: true, reason: error.message, diagnostic };
+    }
     const cancelled = await updateState((state) => {
       if (!state.enabled || state.pending?.id !== challenge || state.epoch !== pending.epoch) return true;
       abandon(state, Date.now(), 'fork_probe_failed');

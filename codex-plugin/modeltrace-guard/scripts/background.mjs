@@ -58,6 +58,7 @@ export async function handleBackgroundHook(event, directory, env = process.env, 
     const state = await readState(directory, event.session_id);
     if (!state?.enabled || state.taskHalt || state.compacting || state.runtimeEndedAt || state.runtimePaused
       || !state.pending || pendingAlerts(state).length || (state.probeRun && processAlive(state.probeRun.pid))) break;
+    if (state.pending.deferTurn && state.pending.deferTurn === state.turn) break;
     // Extremely long configured retries continue in a later background hook;
     // never exceed the host's timeout or change a checkpoint's deadline.
     if (state.pending.expiresAt > deadline) break;
@@ -65,6 +66,10 @@ export async function handleBackgroundHook(event, directory, env = process.env, 
     const result = await runForkProbe(directory, event.session_id, state.pending.id, env,
       { ...dependencies, submit: dependencies.submit || submitForkResult, background: true });
     if (result.skipped || result.cancelled) break;
+    // A live source turn has no stable persisted boundary yet. Keep this
+    // checkpoint and retry it from the next turn hook instead of reporting a
+    // false coverage failure on every PostToolUse callback.
+    if (result.deferred) break;
     if (!result.accepted) return injected(event.hook_event_name,
       `ModelTrace Guard: the background checkpoint failed. Tell the user about this monitoring gap, not a model mismatch. Do not generate probe numbers in the main task. Reason: ${JSON.stringify(result.reason)}${result.diagnostic ? ` Diagnostics: ${JSON.stringify(result.diagnostic)}` : ''}`,
       'ModelTrace Guard: 后台检测未完成，请查看状态。');

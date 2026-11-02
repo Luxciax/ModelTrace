@@ -679,6 +679,47 @@ test('background failures report a gap, never a mismatch or a foreground probe f
   assert.equal(state.samples.length, 0); assert.equal(state.missed, 1); assert.equal(state.taskHalt, null);
 });
 
+test('a live source turn defers the checkpoint until the next turn boundary', async (t) => {
+  const f = await fixture(t), { bank, analyzeGlobalOutputs } = await loadArtifacts();
+  const expected = analyzeGlobalOutputs([{ text: integers, expected_count: 300 }], bank).prediction;
+  const pending = (await f.command('start', '--expected', expected)).pending;
+  let failOnce = true;
+  const connect = () => {
+    const client = f.connect(), request = client.request;
+    client.request = async (method, params) => {
+      if (method === 'thread/fork' && params.ephemeral && failOnce) {
+        failOnce = false;
+        throw new Error("Codex thread/fork: lastTurnId 'work-turn' identifies an in-progress turn");
+      }
+      return request(method, params);
+    };
+    return client;
+  };
+  const deps = { ...f.dependencies, connect };
+  const first = await handleBackgroundHook(backgroundEvent(f), f.directory, {}, deps);
+  assert.deepEqual(first, {});
+  let state = await readState(f.directory, f.session);
+  assert.equal(state.missed, 0);
+  assert.equal(state.samples.length, 0);
+  assert.equal(state.pending.id, pending.id);
+  assert.equal(state.pending.deferTurn, 'work-turn');
+  assert.equal(state.events.at(-1).type, 'fork_probe_deferred');
+
+  // Repeated PostToolUse hooks in the same live turn do not hammer the fork API.
+  await handleBackgroundHook(backgroundEvent(f), f.directory, {}, deps);
+  state = await readState(f.directory, f.session);
+  assert.equal(state.issued, 1);
+  assert.equal(state.missed, 0);
+
+  const nextTurn = backgroundEvent(f, { turn_id: 'next-turn' });
+  const result = await handleBackgroundHook(nextTurn, f.directory, {}, deps);
+  assert.deepEqual(result, {});
+  state = await readState(f.directory, f.session);
+  assert.equal(state.samples.length, 1);
+  assert.equal(state.missed, 0);
+  assert.equal(state.pending, null);
+});
+
 test('probe processes, subagents and other tasks cannot start background inference or update the parent state', async (t) => {
   const f = await fixture(t); await f.command('start');
   const original = await readState(f.directory, f.session);

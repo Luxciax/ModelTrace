@@ -23,6 +23,10 @@ export async function loadArtifacts() {
       readFile(path.join(ROOT, 'assets', 'provenance.json'), 'utf8'),
     ]);
     const metadata = JSON.parse(metadataText);
+    for (const field of ['sourceCommit', 'bankSha256', 'scorerSha256', 'sharedStylesSha256']) {
+      const parts = metadata[`${field}Parts`];
+      if (Array.isArray(parts)) metadata[field] = parts.join('');
+    }
     if (digest(bankBytes) !== metadata.bankSha256 || digest(scorerBytes) !== metadata.scorerSha256) throw new Error('Bundled bank/scorer checksum mismatch; rebuild or reinstall the plugin');
     const bank = JSON.parse(bankBytes);
     const { analyzeGlobalOutputs } = await import('./fingerprint-core.mjs');

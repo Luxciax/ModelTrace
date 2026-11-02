@@ -182,6 +182,7 @@ export function analyzeGlobalOutputs(outputs, bank) {
   ]));
   const results = modelIds.map((model, index) => ({
     model,
+    aliases: modelEntries[model].display_name === 'gpt-6-astra/6.1-sol' ? ['gpt-6.1-sol'] : (model.startsWith('claude-') ? [model.replaceAll('.', '-'), ...(model === 'claude-haiku-4.5' ? ['claude-haiku-4-5-20251001'] : [])] : []),
     display_name: modelEntries[model].display_name,
     probability: probabilities[index],
     profile_similarity: jsSimilarity(pooledCounts, modelEntries[model].counts),

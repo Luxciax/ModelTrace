@@ -99,7 +99,7 @@ export function isDue(state, now) {
 }
 
 export function isMismatch(sample) {
-  return Boolean(sample.expected && sample.prediction && sample.expected !== sample.prediction && Number.isFinite(sample.expectedWeight)
+  return Boolean(sample.expected && sample.prediction && (sample.expectedClass || sample.expected) !== sample.prediction && Number.isFinite(sample.expectedWeight)
     && !['missing_expected_model', 'unknown_expected_model'].includes(sample.outcome));
 }
 
@@ -217,16 +217,17 @@ export function issue(state, now, draw = randomInt) {
 }
 
 export function classifySample(result, expected, previous = []) {
-  const candidate = result.results.find((item) => item.model === expected);
+  const candidate = result.results.find((item) => item.model === expected || item.aliases?.includes(expected));
+  const expectedClass = candidate?.model || expected;
   const top = result.results[0];
   let outcome = 'inconclusive';
   if (!expected) outcome = 'missing_expected_model';
   else if (!candidate) outcome = 'unknown_expected_model';
-  else if (top.model === expected && top.probability >= 0.5) outcome = 'compatible';
-  else if (top.model !== expected && top.probability >= 0.8 && candidate.probability <= 0.15 && top.probability - candidate.probability >= 0.65) outcome = 'difference_signal';
+  else if (top.model === expectedClass && top.probability >= 0.5) outcome = 'compatible';
+  else if (top.model !== expectedClass && top.probability >= 0.8 && candidate.probability <= 0.15 && top.probability - candidate.probability >= 0.65) outcome = 'difference_signal';
   const recent = [...previous.slice(-2), { prediction: top.model, outcome }];
   if (outcome === 'difference_signal' && recent.filter((sample) => sample.prediction === top.model && ['difference_signal', 'repeated_difference'].includes(sample.outcome)).length >= 2) outcome = 'repeated_difference';
-  return { outcome, prediction: top.model, closedSetWeight: top.probability, expectedWeight: candidate?.probability ?? null };
+  return { outcome, prediction: top.model, closedSetWeight: top.probability, expectedWeight: candidate?.probability ?? null, ...(candidate && expectedClass !== expected ? { expectedClass, expectedClassName: candidate.display_name } : {}) };
 }
 
 export function recentComparable(state, pending) {

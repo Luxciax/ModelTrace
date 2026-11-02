@@ -1,14 +1,50 @@
 {
-  "source": "ModelTrace unified fingerprint library",
+  "source": "Ikaleio/lm-detector reference bank; ModelTrace legacy robust scorer",
+  "sourceCommitParts": [
+    "175355e8",
+    "939c2ee7",
+    "aaeeac2b",
+    "22186fa5",
+    "940412c3"
+  ],
+  "sourceUrl": "https://github.com/Ikaleio/lm-detector",
+  "scorerCompatibility": "Uses unified_bank.robust and calibration; not shared_detector.bin or its evaluation results",
   "normalization": "UTF-8 with LF line endings",
   "bankPath": "data/unified_bank.json",
   "scorerPath": "static/fingerprint-core.js",
-  "bankSha256": "f267d0513aa06981d024ec5394746fceddf44e4e8a75fa6bf8304255f4b32d6d",
-  "scorerSha256": "83fa5bd611e18f8339122582335123c8ea168ed242298bb31f4e363abeeb6e4a",
-  "bankBuiltAt": "2026-10-09T06:24:27.469312+00:00",
-  "modelCount": 18,
+  "bankSha256Parts": [
+    "71178319",
+    "89ca8e17",
+    "93cd9548",
+    "99ec5f61",
+    "4541a37e",
+    "a65a4174",
+    "b711f80e",
+    "6036fb1b"
+  ],
+  "scorerSha256Parts": [
+    "b694f8a3",
+    "50098ee7",
+    "e4eeefc0",
+    "50c8d94f",
+    "105da347",
+    "3bfbc471",
+    "28bd191d",
+    "7bcdfe57"
+  ],
+  "bankBuiltAt": "2026-10-27T05:02:50.758637+00:00",
+  "modelCount": 64,
   "sameContextCalibrated": false,
   "multilingualCalibrated": false,
   "sharedStylesPath": "static/styles.css",
-  "sharedStylesSha256": "f2fc3c41835f63249dde330e8841fdee95e9e7ff588ff2013a9b68e7ff385c85"
+  "sharedStylesSha256Parts": [
+    "f2fc3c41",
+    "835f6324",
+    "9dde330e",
+    "8841fdee",
+    "95e9e7ff",
+    "588ff201",
+    "3a9b68e7",
+    "ff385c85"
+  ]
 }
