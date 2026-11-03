@@ -18,11 +18,37 @@ async function existingService(directory) {
   try {
     const res = await fetch(`${origin}/api/health`, { headers: { Authorization: `Bearer ${data.token}` }, signal: AbortSignal.timeout(1500) });
     const health = await res.json();
-    return res.ok && health.service === SERVICE && health.directoryHash === digest(path.resolve(directory)) && health.pid === data.pid ? { ...data, origin } : null;
+    return res.ok && health.service === SERVICE && health.directoryHash === digest(path.resolve(directory)) && health.pid === data.pid
+      ? { ...data, origin, activeClients: Number.isInteger(health.activeClients) ? health.activeClients : 0 } : null;
   } catch { return null; }
 }
 
-export async function launchDashboard(directory, session) {
+async function saveMetadata(directory, service) {
+  const temporary = `${metadataPath(directory)}.${randomUUID()}.tmp`;
+  try {
+    const file = await open(temporary, 'wx', 0o600);
+    try {
+      const { activeClients, ...persistent } = service;
+      await file.writeFile(JSON.stringify(persistent) + '\n'); await file.sync();
+    } finally { await file.close(); }
+    await rename(temporary, metadataPath(directory));
+  } finally { await unlink(temporary).catch((error) => { if (error.code !== 'ENOENT') throw error; }); }
+}
+
+export async function openDashboardUrl(url, { platform = process.platform, spawnProcess = spawn } = {}) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') throw new Error('Dashboard opener only accepts a loopback HTTP URL');
+  const [command, args] = platform === 'win32' ? ['explorer.exe', [url]]
+    : platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore' });
+  await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('spawn', resolve);
+  });
+  child.unref();
+}
+
+export async function launchDashboard(directory, session, { autoOpen = false, opener = openDashboardUrl, now = Date.now } = {}) {
   directory = path.resolve(directory);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const lockPath = `${metadataPath(directory)}.lock`;
@@ -36,7 +62,7 @@ export async function launchDashboard(directory, session) {
       await delay(60);
     }
   }
-  let service, reused = true;
+  let service, reused = true, opened = false, url;
   try {
     service = await existingService(directory);
     if (!service) {
@@ -52,13 +78,7 @@ export async function launchDashboard(directory, session) {
           child.once('message', (message) => message.error ? finish(new Error(message.error)) : finish(null, { service: SERVICE, ...message, token, origin: `http://127.0.0.1:${message.port}` }));
           child.send({ directory, token });
         });
-        const temporary = `${metadataPath(directory)}.${randomUUID()}.tmp`;
-        try {
-          const file = await open(temporary, 'wx', 0o600);
-          try { await file.writeFile(JSON.stringify(service) + '\n'); await file.sync(); }
-          finally { await file.close(); }
-          await rename(temporary, metadataPath(directory));
-        } finally { await unlink(temporary).catch((error) => { if (error.code !== 'ENOENT') throw error; }); }
+        await saveMetadata(directory, service);
         child.disconnect(); child.unref();
       } catch (error) {
         // This is the exact child created by this request, not a PID read from disk.
@@ -68,9 +88,17 @@ export async function launchDashboard(directory, session) {
         throw error;
       }
     }
+    const fragment = new URLSearchParams({ token: service.token, ...(session ? { session: digest(session) } : {}) });
+    url = `${service.origin}/#${fragment}`;
+    const openedRecently = Number.isFinite(service.lastOpenedAt) && now() - service.lastOpenedAt < 30000;
+    if (autoOpen && (service.activeClients || 0) === 0 && !openedRecently) {
+      await opener(url);
+      opened = true;
+      service.lastOpenedAt = now();
+      await saveMetadata(directory, service);
+    }
   } finally { await lock.close(); await unlink(lockPath); }
-  const fragment = new URLSearchParams({ token: service.token, ...(session ? { session: digest(session) } : {}) });
-  return { url: `${service.origin}/#${fragment}`, reused, pid: service.pid, localOnly: true, samplingStarted: false, note: 'Local dashboard only; refresh does not call a model. The URL contains a local access capability: do not publish it. Use dashboard-stop to close the service.' };
+  return { url, reused, opened, pid: service.pid, localOnly: true, samplingStarted: false, note: 'Local dashboard only; refresh does not call a model. The URL contains a local access capability: do not publish it. Use dashboard-stop to close the service.' };
 }
 
 export async function stopDashboard(directory) {

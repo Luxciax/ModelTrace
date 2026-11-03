@@ -90,6 +90,10 @@ export async function createDashboard({ directory, token = randomBytes(32).toStr
     readFile(path.join(pluginRoot, 'scripts/fingerprint-core.mjs')),
   ]);
   const provenance = JSON.parse(provenanceText);
+  for (const field of ['bankSha256', 'scorerSha256', 'sharedStylesSha256']) {
+    const parts = provenance[`${field}Parts`];
+    if (Array.isArray(parts)) provenance[field] = parts.join('');
+  }
   if (digest(bankBytes) !== provenance.bankSha256 || digest(scorerBytes) !== provenance.scorerSha256 || digest(assets.get('/modeltrace.css').bytes) !== provenance.sharedStylesSha256) throw new Error('Bundled bank, scorer or shared stylesheet checksum mismatch; rebuild the plugin');
   const info = { ...provenance, assetsVerified: true, models: JSON.parse(bankBytes).models.map(({ id, family }) => ({ id, family })), updatePolicy: 'The fingerprint library, scorer and theme are bundled with the installed plugin package.' };
   let origin;
@@ -117,7 +121,7 @@ export async function createDashboard({ directory, token = randomBytes(32).toStr
       const supplied = Buffer.from(req.headers.authorization || '');
       const expected = Buffer.from(`Bearer ${token}`);
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw fail(401, '访问凭证缺失或已失效，请让智能体重新打开仪表盘');
-      if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { service: SERVICE, directoryHash: digest(directory), pid: process.pid });
+      if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { service: SERVICE, directoryHash: digest(directory), pid: process.pid, activeClients: streams.size });
       if (req.method === 'GET' && url.pathname === '/api/info') return json(200, info);
       if (req.method === 'GET' && url.pathname === '/api/sessions') return json(200, await listSessions(directory));
       if (req.method === 'GET' && url.pathname === '/api/alerts') {

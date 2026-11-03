@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pendingAlerts, userNotice } from './alerts.mjs';
 import { controlContext, handleHook, notificationContext, submitForkResult } from './guard.mjs';
 import { runForkProbe } from './fork-runner.mjs';
-import { BACKGROUND_STATE_LOCK, expirePending, processAlive, readState, withState } from './state.mjs';
+import { BACKGROUND_STATE_LOCK, expirePending, processAlive, readState, record, withState } from './state.mjs';
 import { summarize } from './status.mjs';
 
 export const BACKGROUND_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse'];
@@ -52,6 +52,21 @@ export async function handleBackgroundHook(event, directory, env = process.env, 
   const output = await handleHook(event, directory, undefined, undefined, { background: true });
   // Deliver already-known alerts immediately, without delaying them for a probe.
   if (Object.keys(output).length) return output;
+  if (event.hook_event_name === 'SessionStart' && event.source === 'startup') {
+    const state = await readState(directory, event.session_id);
+    const autoStarted = state?.events.some((entry) => entry.type === 'monitoring_auto_started' && entry.at === state.lastHookAt);
+    if (autoStarted) {
+      try {
+        const launchDashboard = dependencies.launchDashboard || (await import('./dashboard.mjs')).launchDashboard;
+        const dashboard = await launchDashboard(directory, event.session_id, { autoOpen: true });
+        if (dashboard.opened) await withState(directory, event.session_id, (live) => record(live, 'dashboard_auto_opened', Date.now(), { pid: dashboard.pid }));
+      } catch (error) {
+        await withState(directory, event.session_id, (live) => record(live, 'dashboard_auto_open_failed', Date.now(), { error: String(error.message || error).slice(0, 500) }));
+        return injected(event.hook_event_name, `ModelTrace Guard: monitoring started, but the local dashboard could not open automatically. Report this once and use the dashboard command as a fallback. Error: ${JSON.stringify(String(error.message || error))}`,
+          'ModelTrace Guard：监测已自动开启，但本地面板未能自动打开。');
+      }
+    }
+  }
   const deadline = Date.now() + (dependencies.budgetMs ?? (BACKGROUND_TIMEOUT_SECONDS - 60) * 1000);
   let confirmationId = null;
   for (let count = 0; count < 100; count++) {
