@@ -40,11 +40,8 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') throw new Error('Dashboard opener only accepts a loopback HTTP URL');
   const windows = platform === 'win32';
   const browser = windows ? windowsDefaultBrowser() : null;
-  const browserArgs = browser ? (/firefox/i.test(browser) ? ['-new-window', url] : ['--single-argument', url]) : [];
-  const [command, args, spawnOptions] = browser
-    ? [browser, browserArgs, {}]
-    : windows
-      ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Start-Process -FilePath ([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"], { MODELTRACE_DASHBOARD_URL: url }]
+  const [command, args, spawnOptions] = windows
+    ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "$shell=New-Object -ComObject Shell.Application; $shell.ShellExecute([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"], { MODELTRACE_DASHBOARD_URL: url }]
     : platform === 'darwin' ? ['open', [url], {}] : ['xdg-open', [url], {}];
   const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore', ...(windows ? { env: { ...process.env, ...spawnOptions } } : {}) });
   await new Promise((resolve, reject) => {
