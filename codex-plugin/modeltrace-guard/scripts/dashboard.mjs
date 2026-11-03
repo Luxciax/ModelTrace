@@ -56,7 +56,7 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
     const processName = path.basename(browser, path.extname(browser));
     if (/^[A-Za-z0-9_-]+$/.test(processName)) {
       await delay(400);
-      const focus = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$p=Get-Process -Name '${processName}' -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1; if ($p) {(New-Object -ComObject WScript.Shell).AppActivate($p.Id)}`], { detached: true, windowsHide: true, stdio: 'ignore' });
+      const focus = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ModelTraceWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }'; $p=Get-Process -Name '${processName}' -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1; if ($p) {[ModelTraceWindow]::ShowWindowAsync($p.MainWindowHandle,9); [ModelTraceWindow]::SetForegroundWindow($p.MainWindowHandle)}`], { detached: true, windowsHide: true, stdio: 'ignore' });
       focus.unref();
     }
   }
