@@ -52,6 +52,14 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
     child.once('spawn', resolve);
   });
   child.unref();
+  if (windows && browser && spawnProcess === spawn) {
+    const processName = path.basename(browser, path.extname(browser));
+    if (/^[A-Za-z0-9_-]+$/.test(processName)) {
+      await delay(400);
+      const focus = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$p=Get-Process -Name '${processName}' -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1; if ($p) {(New-Object -ComObject WScript.Shell).AppActivate($p.Id)}`], { detached: true, windowsHide: true, stdio: 'ignore' });
+      focus.unref();
+    }
+  }
 }
 
 function windowsDefaultBrowser() {
