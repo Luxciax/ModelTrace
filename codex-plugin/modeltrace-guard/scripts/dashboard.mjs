@@ -40,7 +40,7 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') throw new Error('Dashboard opener only accepts a loopback HTTP URL');
   const windows = platform === 'win32';
   const browser = windows ? windowsDefaultBrowser() : null;
-  const browserArgs = browser ? (/firefox/i.test(browser) ? ['-new-window', url] : ['--new-window', url]) : [];
+  const browserArgs = browser ? (/firefox/i.test(browser) ? ['-new-window', url] : ['--single-argument', url]) : [];
   const [command, args, spawnOptions] = browser
     ? [browser, browserArgs, {}]
     : windows
