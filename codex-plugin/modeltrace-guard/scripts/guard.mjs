@@ -254,7 +254,7 @@ function parseArguments(args) {
   }
   const fields = ['mode', 'tool-min', 'tool-max', 'retry-count', 'pending-seconds', 'languages'];
   const perCommand = {
-    help: [], doctor: ['fork'], models: [], hook: [], 'background-hook': [], wait: ['confirmation'], status: [], stop: [], resume: ['halt'], dashboard: ['open'], 'dashboard-stop': [], acknowledge: ['alert'], label: ['name'],
+    help: [], doctor: ['fork'], models: [], hook: [], 'background-hook': [], wait: ['confirmation'], status: [], stop: [], resume: ['halt'], dashboard: ['open', 'focus'], 'dashboard-stop': [], acknowledge: ['alert'], label: ['name'],
     start: ['expected', 'name', ...fields], configure: ['expected', 'name', ...fields], submit: ['challenge', 'numbers'], probe: ['challenge'],
   };
   if (!Object.hasOwn(perCommand, command)) throw new Error(`Unknown command: ${command}`);
@@ -286,7 +286,7 @@ export async function run(args, env = process.env, receipt = null) {
     name: 'start --name <task title> or label --name <display name>; metadata only, does not rename the Codex task or change sampling',
     session: 'Defaults to CODEX_THREAD_ID; otherwise pass --session from a trusted hook. Never invent a task id.',
     frequency: '--tool-min N --tool-max N; equal min/max = fixed interval; tools only',
-    dashboard: 'dashboard --open true opens the local dashboard in the default browser and reuses an existing connected panel',
+    dashboard: 'dashboard --open true opens the local dashboard; add --focus true to bring an existing panel to the foreground',
     retries: '--retry-count N (1..100, default 3): consecutive follow-ups after an initial mismatch; all N mismatches request task halt',
     resume: 'resume --halt <halt id> only after the user explicitly asks to resume task work',
     probeLimits: 'No per-turn or task-total probe limits; sampling remains subject to tool intervals, one live checkpoint and explicit stop/halt',
@@ -321,7 +321,8 @@ export async function run(args, env = process.env, receipt = null) {
     const selected = options.session || env.CODEX_THREAD_ID;
     if (selected && (selected.length > 256 || /[\x00-\x1f]/.test(selected))) throw new Error('Invalid session ID');
     if (options.open !== undefined && !['true', 'false'].includes(options.open)) throw new Error('Use dashboard --open true or --open false');
-    return launchDashboard(directory, selected, { autoOpen: options.open === 'true' });
+    if (options.focus !== undefined && !['true', 'false'].includes(options.focus)) throw new Error('Use dashboard --focus true or --focus false');
+    return launchDashboard(directory, selected, { autoOpen: options.open === 'true', forceOpen: options.focus === 'true' });
   }
   const session = options.session || env.CODEX_THREAD_ID;
   if (!session || session.length > 256 || /[\x00-\x1f]/.test(session)) throw new Error('No valid current session: use CODEX_THREAD_ID or --session from the hook');

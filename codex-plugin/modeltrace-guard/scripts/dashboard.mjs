@@ -70,7 +70,7 @@ function windowsDefaultBrowser() {
   return executable && path.isAbsolute(executable) ? executable : null;
 }
 
-export async function launchDashboard(directory, session, { autoOpen = false, opener = openDashboardUrl, now = Date.now } = {}) {
+export async function launchDashboard(directory, session, { autoOpen = false, forceOpen = false, opener = openDashboardUrl, now = Date.now } = {}) {
   directory = path.resolve(directory);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const lockPath = `${metadataPath(directory)}.lock`;
@@ -113,7 +113,7 @@ export async function launchDashboard(directory, session, { autoOpen = false, op
     const fragment = new URLSearchParams({ token: service.token, ...(session ? { session: digest(session) } : {}) });
     url = `${service.origin}/#${fragment}`;
     const openedRecently = Number.isFinite(service.lastOpenedAt) && now() - service.lastOpenedAt < 30000;
-    if (autoOpen && (service.activeClients || 0) === 0 && !openedRecently) {
+    if (autoOpen && (forceOpen || ((service.activeClients || 0) === 0 && !openedRecently))) {
       await opener(url);
       opened = true;
       service.lastOpenedAt = now();
