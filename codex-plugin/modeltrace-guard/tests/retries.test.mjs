@@ -24,7 +24,8 @@ test('bank aliases compare against their shared class and preserve identity in p
   assert.equal(scored.results.length, 64);
   assert.ok(scored.results.every((item) => Number.isFinite(item.score) && Number.isFinite(item.probability)));
   for (const [expected, id] of [
-    ['gpt-6.1-sol', 'gpt-6-astra'],
+    ['gpt-6.1-sol', 'gpt-6.1-sol-astra-shared'],
+    ['gpt-6-astra', 'gpt-6.1-sol-astra-shared'],
     ['claude-haiku-4-5-20251001', 'claude-haiku-4.5'],
     ['claude-sonnet-4-6', 'claude-sonnet-4.6'],
   ]) {

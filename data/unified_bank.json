@@ -609983,8 +609983,12 @@
       ]
     },
     {
-      "id": "gpt-6-astra",
-      "display_name": "gpt-6-astra/6.1-sol",
+      "id": "gpt-6.1-sol-astra-shared",
+      "display_name": "gpt-6.1-sol/astra",
+      "aliases": [
+        "gpt-6.1-sol",
+        "gpt-6-astra"
+      ],
       "family": "gpt",
       "family_name": "GPT",
       "response_count": 72,
@@ -874402,7 +874406,7 @@
       "deepseek-v3.2",
       "gpt-6-sol",
       "claude-sonnet-5.5",
-      "gpt-6-astra",
+      "gpt-6.1-sol-astra-shared",
       "gpt-5.4",
       "gpt-5.5",
       "gpt-5.6-sol",
