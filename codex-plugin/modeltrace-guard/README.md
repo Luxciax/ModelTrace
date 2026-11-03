@@ -51,7 +51,7 @@ node scripts/guard.mjs doctor --fork true
 node scripts/guard.mjs start --tool-min 16 --tool-max 32 --retry-count 3 --languages zh,en
 node scripts/guard.mjs configure --retry-count 5
 node scripts/guard.mjs status
-node scripts/guard.mjs dashboard
+node scripts/guard.mjs dashboard --open true
 node scripts/guard.mjs stop
 ```
 
@@ -111,7 +111,7 @@ API Key 登录、自定义服务地址、代理和自定义 CA 配置继续使�
 
 ## 重启、存储与清理状态
 
-监测设置保存在稳定数据目录。重新打开原任务时，启动/恢复 hook 会触发自检，并在观察到工作工具调用后验证运行状态。网页服务和监测相互独立：使用 `dashboard` 命令打开网页，关闭网页不会停止任务监测。
+监测设置保存在稳定数据目录。重新打开原任务时，启动/恢复 hook 会触发自检，并在观察到工作工具调用后验证运行状态。网页服务和监测相互独立：使用 `dashboard --open true` 命令启动或复用服务并打开网页，关闭网页不会停止任务监测。
 
 数据默认在 `~/.codex/modeltrace-guard`，可用 `MODELTRACE_GUARD_DATA` 覆盖。状态文件保留近期记录，完整样本、事件及已确认提醒保存在 `_history` 中，可从网页“完整历史”翻页查看。数据格式升级时保留已有历史。状态锁仅在确认所属进程已退出后自动回收；无法确认的锁会报告错误，需检查相关进程状态。
 
