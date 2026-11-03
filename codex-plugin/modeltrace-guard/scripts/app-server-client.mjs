@@ -3,7 +3,7 @@ import { access, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { readProtocolLines } from './protocol-lines.mjs';
 
-export const CODEX_CLIENT_INFO = Object.freeze({ name: 'modeltrace_guard', version: '0.1.8-local.13' });
+export const CODEX_CLIENT_INFO = Object.freeze({ name: 'modeltrace_guard', version: '0.1.8-local.14' });
 
 // Use Codex's own transport and configured account/provider, never a parallel
 // hand-written Responses/Chat client. Do not print protocol history or stderr.
