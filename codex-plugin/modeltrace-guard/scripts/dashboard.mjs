@@ -38,9 +38,11 @@ async function saveMetadata(directory, service) {
 export async function openDashboardUrl(url, { platform = process.platform, spawnProcess = spawn } = {}) {
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') throw new Error('Dashboard opener only accepts a loopback HTTP URL');
-  const [command, args] = platform === 'win32' ? ['explorer.exe', [url]]
-    : platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
-  const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore' });
+  const windows = platform === 'win32';
+  const [command, args, spawnOptions] = windows
+    ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Start-Process -FilePath ([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"], { MODELTRACE_DASHBOARD_URL: url }]
+    : platform === 'darwin' ? ['open', [url], {}] : ['xdg-open', [url], {}];
+  const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore', ...(windows ? { env: { ...process.env, ...spawnOptions } } : {}) });
   await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('spawn', resolve);
