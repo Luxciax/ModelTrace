@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,8 +39,12 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
   const parsed = new URL(url);
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') throw new Error('Dashboard opener only accepts a loopback HTTP URL');
   const windows = platform === 'win32';
-  const [command, args, spawnOptions] = windows
-    ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Start-Process -FilePath ([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"], { MODELTRACE_DASHBOARD_URL: url }]
+  const browser = windows ? windowsDefaultBrowser() : null;
+  const browserArgs = browser ? (/firefox/i.test(browser) ? ['-new-window', url] : ['--new-window', url]) : [];
+  const [command, args, spawnOptions] = browser
+    ? [browser, browserArgs, {}]
+    : windows
+      ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "Start-Process -FilePath ([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"], { MODELTRACE_DASHBOARD_URL: url }]
     : platform === 'darwin' ? ['open', [url], {}] : ['xdg-open', [url], {}];
   const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore', ...(windows ? { env: { ...process.env, ...spawnOptions } } : {}) });
   await new Promise((resolve, reject) => {
@@ -48,6 +52,17 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
     child.once('spawn', resolve);
   });
   child.unref();
+}
+
+function windowsDefaultBrowser() {
+  const choice = spawnSync('reg.exe', ['query', 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\http\\UserChoice', '/v', 'ProgId'], { encoding: 'utf8', windowsHide: true });
+  const progId = choice.status === 0 ? choice.stdout.match(/\bProgId\s+REG_SZ\s+([^\s\r\n]+)/i)?.[1] : null;
+  if (!progId) return null;
+  const command = spawnSync('reg.exe', ['query', `HKCR\\${progId}\\shell\\open\\command`, '/ve'], { encoding: 'utf8', windowsHide: true });
+  if (command.status !== 0) return null;
+  const raw = command.stdout.match(/^\s*\(Default\)\s+REG_SZ\s+(.*)$/im)?.[1]?.trim();
+  const executable = raw?.match(/^"([^"]+)"/)?.[1] || raw?.split(/\s+/)[0];
+  return executable && path.isAbsolute(executable) ? executable : null;
 }
 
 export async function launchDashboard(directory, session, { autoOpen = false, opener = openDashboardUrl, now = Date.now } = {}) {
