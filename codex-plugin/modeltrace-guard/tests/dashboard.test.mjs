@@ -13,6 +13,7 @@ import { createDashboard, SERVICE } from '../scripts/dashboard-server.mjs';
 import { launchDashboard, stopDashboard } from '../scripts/dashboard.mjs';
 import { queueAlert } from '../scripts/alerts.mjs';
 import { loadArtifacts } from '../scripts/guard.mjs';
+import { readGlobalSettings } from '../scripts/settings.mjs';
 
 const session = 'dashboard-synthetic-fixture';
 async function fixture(t) {
@@ -51,6 +52,21 @@ test('dashboard binds only loopback and requires a capability for all session da
   assert.equal(home.headers.get('cache-control'), 'no-store');
   assert.equal((await s.call('/assets/unified_bank.json')).status, 404);
   assert.equal((await s.call('/api/sessions/../../_dashboard.json')).status, 404);
+});
+
+test('global new-session auto-monitor setting defaults on, persists, and rejects invalid writes', async (t) => {
+  const dir = await fixture(t), s = await serverFixture(t, dir);
+  assert.deepEqual(await (await s.call('/api/settings')).json(), { autoMonitorNewSessions: true });
+  const changed = await s.call('/api/settings', { autoMonitorNewSessions: false });
+  assert.equal(changed.status, 200); assert.deepEqual(await changed.json(), { autoMonitorNewSessions: false });
+  assert.equal((await readGlobalSettings(dir)).autoMonitorNewSessions, false);
+  const restored = await s.call('/api/settings', { autoMonitorNewSessions: true });
+  assert.equal(restored.status, 200); assert.equal((await readGlobalSettings(dir)).autoMonitorNewSessions, true);
+  assert.equal((await s.call('/api/settings', { autoMonitorNewSessions: 'false' })).status, 400);
+  assert.equal((await s.call('/api/settings', { autoMonitorNewSessions: true, extra: true })).status, 400);
+  assert.equal((await s.call('/api/settings', {}, { Origin: '' })).status, 403);
+  const page = await (await s.call('/')).text();
+  assert.ok(page.includes('id="auto-monitor-new"')); assert.ok(page.includes('新会话自动监测'));
 });
 
 test('foreign Origin, DNS-rebinding Host and cross-site requests cannot reach dashboard APIs', async (t) => {

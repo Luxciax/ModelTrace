@@ -11,6 +11,7 @@ import {
 import { ROOT, challengeContext, handleHook, loadArtifacts, summarize } from '../scripts/guard.mjs';
 import { run } from './fixture-runner.mjs';
 import { LANGUAGES, localizedPrompt, forkPrompt } from '../scripts/prompts.mjs';
+import { writeGlobalSettings } from '../scripts/settings.mjs';
 
 const minimum = (lo) => lo;
 const session = 'modeltrace-test-task';
@@ -133,6 +134,21 @@ test('ten localized prompts preserve count/range/submission, can be sampled indi
     assert.ok(!context.includes('--numbers'));
   }
   assert.throws(() => localizedPrompt('xx', 300, 'command'));
+});
+
+test('new startup sessions auto-monitor only when the global switch is enabled', async (t) => {
+  const enabledDir = await fixture(t);
+  await handleHook(event('SessionStart', { source: 'startup' }), enabledDir, 1000, minimum);
+  const enabled = await readState(enabledDir, session);
+  assert.equal(enabled.enabled, true); assert.equal(enabled.issued, 1);
+  assert.ok(enabled.events.some((entry) => entry.type === 'monitoring_auto_started'));
+
+  const disabledDir = await fixture(t);
+  await writeGlobalSettings(disabledDir, { autoMonitorNewSessions: false });
+  await handleHook(event('SessionStart', { source: 'startup' }), disabledDir, 1000, minimum);
+  const disabled = await readState(disabledDir, session);
+  assert.equal(disabled.enabled, false); assert.equal(disabled.issued, 0);
+  assert.ok(!disabled.events.some((entry) => entry.type === 'monitoring_auto_started'));
 });
 
 test('inactive hook is silent, records heartbeat, never probes', async (t) => {

@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const access = new URLSearchParams(location.hash.slice(1));
 const token = access.get('token') || '';
 let selected = access.get('session') || '', snapshot = null, dirty = false, loading = false, editingSession = '', stopTarget = null, renameTarget = null, bankInfo = null;
-let archivePage = null, archiveKind = 'recent', notificationsEnabled = false, alertStreamStarted = false;
+let globalSettings = null, archivePage = null, archiveKind = 'recent', notificationsEnabled = false, alertStreamStarted = false;
 const languageNames = { zh: '中文', en: '英语', ja: '日语', ko: '韩语', fr: '法语', de: '德语', es: '西语', pt: '葡语', ru: '俄语', ar: '阿语' };
 const outcomes = {
   compatible: ['本次相符', 'good'], allowed_upgrade: ['升档路由', 'good'], inconclusive: ['证据不足', 'warning'], unknown_expected_model: ['预期标签未收录', 'warning'], missing_expected_model: ['未获取预期模型', 'warning'],
@@ -24,6 +24,12 @@ const displayOutcome = (sample) => sample.displayOutcome || (sample.outcome === 
 function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function pill(code) { const [label, color] = outcomes[code] || [code, 'neutral']; return element('span', `pill ${color}`, label); }
 function inlineEmpty(parent, text) { parent.replaceChildren(element('div', 'empty-inline', text)); }
+function renderGlobalSettings(settings) {
+  globalSettings = settings;
+  $('auto-monitor-new').checked = Boolean(settings.autoMonitorNewSessions);
+  $('auto-monitor-new').disabled = false;
+  txt('auto-monitor-status', settings.autoMonitorNewSessions ? '已开启 · 以后新建会话自动进入监测' : '已关闭 · 以后新建会话保持未监测');
+}
 function showDetail(record, title = '检查点详情') { txt('detail-title', title); txt('detail-body', JSON.stringify(record, null, 2)); $('detail').showModal(); }
 async function api(route, body) {
   const response = await fetch(route, { method: body === undefined ? 'GET' : 'POST', headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(6000) });
@@ -151,7 +157,7 @@ function failure(error) {
   txt('error', error.message); $('error').hidden = false;
   txt('connection', '连接异常 · 显示的可能是旧记录'); $('connection').className = 'connection offline';
   $('save').disabled = true; $('stop').disabled = true;
-  $('rename-task').disabled = true;
+  $('rename-task').disabled = true; $('auto-monitor-new').disabled = true;
   txt('runtime', '状态未更新'); $('runtime').className = 'pill warning';
 }
 async function refresh() {
@@ -166,6 +172,7 @@ async function refresh() {
       txt('bank-source', `统一指纹库 · ${bankInfo.modelCount} 个模型 · SHA-256 ${bankInfo.bankSha256.slice(0, 12)}… · 插件打包快照`);
       $('bank-detail').disabled = false;
     }
+    renderGlobalSettings(await api('/api/settings'));
     const result = await api('/api/sessions');
     if (requested !== selected) return;
     if (!selected && result.sessions.length) selected = result.sessions[0].id;
@@ -190,6 +197,15 @@ for (const [code, name] of Object.entries(languageNames)) {
   label.append(input, document.createTextNode(name)); $('languages').append(label);
 }
 $('refresh').addEventListener('click', refresh);
+$('auto-monitor-new').addEventListener('change', async () => {
+  const input = $('auto-monitor-new'), requested = input.checked;
+  input.disabled = true; txt('auto-monitor-status', '正在保存…');
+  try { renderGlobalSettings(await api('/api/settings', { autoMonitorNewSessions: requested })); }
+  catch (error) {
+    input.checked = Boolean(globalSettings?.autoMonitorNewSessions);
+    txt('auto-monitor-status', error.message);
+  } finally { input.disabled = false; }
+});
 $('session').addEventListener('change', () => { selected = $('session').value; dirty = false; archivePage = null; archiveKind = 'recent'; $('history-kind').value = 'recent'; txt('save-message', ''); render(null); void refresh(); });
 $('history-kind').addEventListener('change', () => { archiveKind = $('history-kind').value; archivePage = null; if (archiveKind === 'recent') { if (snapshot) renderHistory(snapshot); } else void loadHistory(); });
 $('history-more').addEventListener('click', () => void loadHistory(archivePage?.nextBefore));

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { abandon, digest, interruptConfirmation, publicSample, record, schedule, setTaskName, validateConfig, withState } from './state.mjs';
 import { summarize } from './status.mjs';
 import { historyCount, historyPage } from './history.mjs';
+import { readGlobalSettings, writeGlobalSettings } from './settings.mjs';
 
 export const SERVICE = 'modeltrace-guard-dashboard-v1';
 const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../web');
@@ -123,6 +124,7 @@ export async function createDashboard({ directory, token = randomBytes(32).toStr
       if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw fail(401, '访问凭证缺失或已失效，请让智能体重新打开仪表盘');
       if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { service: SERVICE, directoryHash: digest(directory), pid: process.pid, activeClients: streams.size });
       if (req.method === 'GET' && url.pathname === '/api/info') return json(200, info);
+      if (req.method === 'GET' && url.pathname === '/api/settings') return json(200, await readGlobalSettings(directory));
       if (req.method === 'GET' && url.pathname === '/api/sessions') return json(200, await listSessions(directory));
       if (req.method === 'GET' && url.pathname === '/api/alerts') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', Connection: 'keep-alive' });
@@ -159,6 +161,11 @@ export async function createDashboard({ directory, token = randomBytes(32).toStr
         json(200, { stopped: true });
         setImmediate(() => { void close().then(() => onShutdown?.()); });
         return;
+      }
+      if (req.method === 'POST' && url.pathname === '/api/settings') {
+        const body = await jsonBody(req);
+        try { return json(200, await writeGlobalSettings(directory, body)); }
+        catch (error) { throw fail(400, error.message); }
       }
       const match = url.pathname.match(/^\/api\/sessions\/([a-f0-9]{64})(?:\/(configure|stop|name|history))?$/);
       if (!match) throw fail(404, '未找到接口');

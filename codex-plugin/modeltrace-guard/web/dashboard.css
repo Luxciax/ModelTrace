@@ -81,6 +81,15 @@ a { color: inherit; text-decoration: none; }
 .weight-row meter::-webkit-meter-bar { background: #e5eaf0; border: 0; height: 7px; }
 .weight-row meter::-webkit-meter-optimum-value { background: var(--primary); }
 .weight-number { width: 37px; text-align: right; color: var(--muted); font: 11px Consolas, monospace; }
+.auto-monitor-control { display: flex; align-items: center; gap: 10px; min-width: 220px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.auto-monitor-control > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.auto-monitor-control strong { font-size: 11px; color: var(--text); }
+.auto-monitor-control small { font-size: 9px; color: var(--muted); white-space: nowrap; }
+.auto-monitor-control input { appearance: none; flex: 0 0 auto; width: 30px; height: 18px; margin: 0; border-radius: 999px; background: #cbd5e1; position: relative; transition: background .15s ease; }
+.auto-monitor-control input::after { content: ''; position: absolute; width: 14px; height: 14px; left: 2px; top: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 2px #0002; transition: transform .15s ease; }
+.auto-monitor-control input:checked { background: var(--primary); }
+.auto-monitor-control input:checked::after { transform: translateX(12px); }
+.auto-monitor-control input:disabled { opacity: .55; cursor: wait; }
 .filter-label { display: flex; flex-direction: row; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
 .filter-label select { border: 1px solid var(--line-strong); background: white; border-radius: 6px; color: var(--text); padding: 6px; font-size: 11px; }
 .table-scroll { overflow: auto; margin: 16px -17px 0; }
@@ -150,6 +159,8 @@ dialog p { font-size: 12px; line-height: 1.7; }
   .nav-icon { width: 23px; height: 23px; font-size: 9px; }
   .main-content { padding: 20px 12px 35px; }
   .header-actions { justify-content: space-between; }
+  .auto-monitor-control { min-width: 0; flex: 1; }
+  .auto-monitor-control small { white-space: normal; }
   .header-actions .button { width: auto; }
   .page-header h1 { font-size: 24px; }
   .task-bar { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { LANGUAGES } from './prompts.mjs';
 import { acknowledgeAlerts, pendingAlerts, queueAlert, userNotice } from './alerts.mjs';
 import { summarize } from './status.mjs';
+import { readGlobalSettings } from './settings.mjs';
 import { dispatchQueuedCleanups, removeSnapshot, requestCleanupSweep } from './fork-snapshot.mjs';
 export { summarize } from './status.mjs';
 import {
@@ -157,7 +158,7 @@ export async function handleHook(event, directory, now = Date.now(), draw = rand
     }
     const pristineSession = !state.enabled && !state.enabledAt && !state.startedAt && !state.issued
       && !state.samples.length && !(state.alerts || []).length && !state.events.some((entry) => entry.type === 'monitoring_stopped');
-    if (currentTurn && hook === 'SessionStart' && event.source === 'startup' && pristineSession) {
+    if (currentTurn && hook === 'SessionStart' && event.source === 'startup' && pristineSession && (await readGlobalSettings(directory)).autoMonitorNewSessions) {
       await loadArtifacts();
       state.enabled = true;
       state.enabledAt = now;

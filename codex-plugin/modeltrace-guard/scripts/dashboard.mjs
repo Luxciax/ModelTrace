@@ -44,7 +44,8 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
   if (windows && browser) {
     const browserName = path.basename(browser).toLowerCase();
     const chromium = ['vivaldi.exe', 'chrome.exe', 'msedge.exe', 'brave.exe', 'chromium.exe'].includes(browserName);
-    args = chromium ? ['--new-window', url] : browserName === 'firefox.exe' ? ['-new-window', url] : [url];
+    const hasVisibleWindow = windowsBrowserHasVisibleWindow(browser);
+    args = hasVisibleWindow ? [url] : chromium ? ['--new-window', url] : browserName === 'firefox.exe' ? ['-new-window', url] : [url];
     command = browser;
   } else if (windows) {
     command = 'powershell.exe';
@@ -66,6 +67,13 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
       focus.unref();
     }
   }
+}
+
+function windowsBrowserHasVisibleWindow(browser) {
+  const processName = path.basename(browser, path.extname(browser));
+  if (!/^[A-Za-z0-9_-]+$/.test(processName)) return false;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$p=Get-Process -Name '${processName}' -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1; if ($p) { exit 0 } else { exit 1 }`], { windowsHide: true });
+  return result.status === 0;
 }
 
 function windowsDefaultBrowser() {
