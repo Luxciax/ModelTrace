@@ -40,10 +40,20 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
   if (parsed.protocol !== 'http:' || parsed.hostname !== '127.0.0.1') throw new Error('Dashboard opener only accepts a loopback HTTP URL');
   const windows = platform === 'win32';
   const browser = windows ? windowsDefaultBrowser() : null;
-  const [command, args, spawnOptions] = windows
-    ? ['powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "$shell=New-Object -ComObject Shell.Application; $shell.ShellExecute([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"], { MODELTRACE_DASHBOARD_URL: url }]
-    : platform === 'darwin' ? ['open', [url], {}] : ['xdg-open', [url], {}];
-  const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore', ...(windows ? { env: { ...process.env, ...spawnOptions } } : {}) });
+  let command, args, spawnOptions = {};
+  if (windows && browser) {
+    const browserName = path.basename(browser).toLowerCase();
+    const chromium = ['vivaldi.exe', 'chrome.exe', 'msedge.exe', 'brave.exe', 'chromium.exe'].includes(browserName);
+    args = chromium ? ['--new-window', url] : browserName === 'firefox.exe' ? ['-new-window', url] : [url];
+    command = browser;
+  } else if (windows) {
+    command = 'powershell.exe';
+    args = ['-NoProfile', '-NonInteractive', '-Command', "$shell=New-Object -ComObject Shell.Application; $shell.ShellExecute([Environment]::GetEnvironmentVariable('MODELTRACE_DASHBOARD_URL'))"];
+    spawnOptions = { MODELTRACE_DASHBOARD_URL: url };
+  } else {
+    [command, args] = platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  }
+  const child = spawnProcess(command, args, { detached: true, windowsHide: true, stdio: 'ignore', ...(windows && Object.keys(spawnOptions).length ? { env: { ...process.env, ...spawnOptions } } : {}) });
   await new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('spawn', resolve);
@@ -52,8 +62,7 @@ export async function openDashboardUrl(url, { platform = process.platform, spawn
   if (windows && browser && spawnProcess === spawn) {
     const processName = path.basename(browser, path.extname(browser));
     if (/^[A-Za-z0-9_-]+$/.test(processName)) {
-      await delay(400);
-      const focus = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ModelTraceWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }'; $p=Get-Process -Name '${processName}' -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1; if ($p) {[ModelTraceWindow]::ShowWindowAsync($p.MainWindowHandle,9); [ModelTraceWindow]::SetForegroundWindow($p.MainWindowHandle)}`], { detached: true, windowsHide: true, stdio: 'ignore' });
+      const focus = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ModelTraceWindow { [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }'; for ($i=0; $i -lt 20; $i++) {$p=Get-Process -Name '${processName}' -ErrorAction SilentlyContinue | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1; if ($p) {[ModelTraceWindow]::ShowWindowAsync($p.MainWindowHandle,9); [ModelTraceWindow]::SetForegroundWindow($p.MainWindowHandle); break}; Start-Sleep -Milliseconds 150}`], { detached: true, windowsHide: true, stdio: 'ignore' });
       focus.unref();
     }
   }
@@ -65,7 +74,7 @@ function windowsDefaultBrowser() {
   if (!progId) return null;
   const command = spawnSync('reg.exe', ['query', `HKCR\\${progId}\\shell\\open\\command`, '/ve'], { encoding: 'utf8', windowsHide: true });
   if (command.status !== 0) return null;
-  const raw = command.stdout.match(/^\s*\(Default\)\s+REG_SZ\s+(.*)$/im)?.[1]?.trim();
+  const raw = command.stdout.match(/^.*?\bREG_SZ\b\s+(.*)$/im)?.[1]?.trim();
   const executable = raw?.match(/^"([^"]+)"/)?.[1] || raw?.split(/\s+/)[0];
   return executable && path.isAbsolute(executable) ? executable : null;
 }
