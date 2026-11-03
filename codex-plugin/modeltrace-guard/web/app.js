@@ -21,6 +21,7 @@ const date = (at) => at ? new Date(at).toLocaleString('zh-CN', { hour12: false }
 const time = (at) => at ? new Date(at).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
 const txt = (id, text) => { $(id).textContent = text; };
 const displayOutcome = (sample) => sample.displayOutcome || (sample.outcome === 'unknown_expected_model' && !sample.expected ? 'missing_expected_model' : sample.outcome);
+const diagnosticSummary = (diagnostic) => diagnostic ? [diagnostic.stage, diagnostic.code, diagnostic.itemType, diagnostic.method, diagnostic.runtimeVersion ? `v${diagnostic.runtimeVersion}` : null].filter(Boolean).join(' / ') : '';
 function element(tag, className, text) { const node = document.createElement(tag); if (className) node.className = className; if (text !== undefined) node.textContent = text; return node; }
 function pill(code) { const [label, color] = outcomes[code] || [code, 'neutral']; return element('span', `pill ${color}`, label); }
 function inlineEmpty(parent, text) { parent.replaceChildren(element('div', 'empty-inline', text)); }
@@ -99,7 +100,10 @@ function renderHistory(state) {
     const row = element('tr');
     const at = element('td', 'table-time'); const button = element('button', 'row-detail', date(record.at)); button.type = 'button'; button.addEventListener('click', () => showDetail(record)); at.append(button);
     const outcome = element('td'); outcome.append(record.type === 'sample' ? pill(displayOutcome(record)) : element('span', `pill ${record.type === 'probe_missed' || record.type === 'budget_paused' ? 'warning' : 'neutral'}`, eventNames[record.type] || record.type));
-    const model = element('td', 'table-model'); model.textContent = record.type === 'sample' ? `${record.expected || '当时未获取'} → ${record.prediction || '未知'}` : record.name || record.model || reasons[record.reason] || record.reason || '—';
+    const model = element('td', 'table-model');
+    const baseText = record.type === 'sample' ? `${record.expected || '当时未获取'} → ${record.prediction || '未知'}` : record.name || record.model || reasons[record.reason] || record.reason || '—';
+    const diagnosticText = diagnosticSummary(record.diagnostic);
+    model.textContent = diagnosticText ? `${baseText} · ${diagnosticText}` : baseText;
     row.append(at, outcome, model, element('td', '', languageNames[record.language] || record.language || '—'), element('td', '', `#${record.epoch}`)); return row;
   });
   if (!rows.length) { const row = element('tr'); const cell = element('td', 'empty-inline', '没有符合筛选条件的记录'); cell.colSpan = 5; row.append(cell); rows.push(row); }
@@ -135,7 +139,7 @@ function render(state) {
   txt('hook-note', state.hookObserved ? `最近工作 hook ${time(state.lastWorkHookAt)}` : state.hookState === 'idle' ? `暂无新工作工具 · 最近 ${date(state.lastWorkHookAt)}` : state.hookState === 'awaiting_background_hook' ? '已观察到工作工具，等待后台 hook 验证' : '等待当前运行中的工作工具验证 hooks');
   renderConfirmation(state); renderTrace(state); renderAlerts(state); renderHistory(state);
   const forkFailure = state.forkHealth?.ready === false && state.forkHealth.error ? state.forkHealth : null;
-  const failureNote = forkFailure ? ` · 检测未完成：${forkFailure.error}${forkFailure.diagnostic ? ` [${forkFailure.diagnostic.stage} / ${forkFailure.diagnostic.code}]` : ''}` : '';
+  const failureNote = forkFailure ? ` · 检测未完成：${forkFailure.error}${forkFailure.diagnostic ? ` [${diagnosticSummary(forkFailure.diagnostic)}]` : ''}` : '';
   txt('fork-note', `${state.snapshot ? `冻结快照 ${state.snapshot.sha256?.slice(0, 12) || '等待确认'}…` : '当前无保留中的基准快照'}${state.forkCleanup ? ` · 最近清理：${({ pending: '待删除', deleted: '已删除', blocked: '需检查' })[state.forkCleanup.status] || state.forkCleanup.status}` : ''}${state.forkCleanup?.error ? ` · ${state.forkCleanup.error}` : ''}${failureNote}`);
   const latest = state.samples.at(-1); $('weights').replaceChildren();
   txt('latest-language', latest ? languageNames[latest.language] || latest.language : '—');

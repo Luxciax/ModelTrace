@@ -437,7 +437,11 @@ test('early completion notifications and observed cached tokens are retained; to
       return { turn: { id: 't' } };
     } };
     const action = () => generateProbe(client, 'fork', { expiresAt: Date.now() + 5000, language: 'en', count: 300 });
-    if (toolAttempt) await assert.rejects(action, /attempted a tool/);
+    if (toolAttempt) await assert.rejects(action, (error) => {
+      assert.match(error.message, /attempted a tool/);
+      assert.deepEqual(error.diagnostic, { code: 'unexpected_item', method: 'item/started', itemType: 'commandExecution', itemPhase: null, eventTurnId: null });
+      return true;
+    });
     else { const result = await action(); assert.equal(result.text, integers); assert.equal(result.usage.cachedInputTokens, 4000); }
     assert.equal(client.listeners.size, 0);
   }
@@ -672,11 +676,22 @@ for (const cancel of ['stop', 'Interrupt', 'PreCompact', 'SessionEnd', 'comparis
 test('background failures report a gap, never a mismatch or a foreground probe fallback', async (t) => {
   const f = await fixture(t); await f.command('start');
   const output = await handleBackgroundHook(managementEvent(f, 'start'), f.directory, {}, {
-    ...f.dependencies, generate: async () => { throw Error('fixture transport failure'); },
+    ...f.dependencies, generate: async () => {
+      const error = Error('fixture transport failure');
+      error.diagnostic = { code: 'unexpected_item', method: 'item/started', itemType: 'commandExecution', itemPhase: null, eventTurnId: 'probe-turn' };
+      throw error;
+    },
   });
   assert.ok(output.systemMessage); assert.ok(output.hookSpecificOutput.additionalContext.includes('monitoring gap'));
   const state = await readState(f.directory, f.session);
   assert.equal(state.samples.length, 0); assert.equal(state.missed, 1); assert.equal(state.taskHalt, null);
+  assert.equal(state.forkHealth.diagnostic.stage, 'inference');
+  assert.equal(state.forkHealth.diagnostic.code, 'unexpected_item');
+  assert.equal(state.forkHealth.diagnostic.itemType, 'commandExecution');
+  assert.ok(state.forkHealth.diagnostic.runtimeVersion);
+  const failedEvent = state.events.findLast((event) => event.type === 'fork_probe_failed');
+  assert.equal(failedEvent.diagnostic.method, 'item/started');
+  assert.equal(failedEvent.diagnostic.eventTurnId, 'probe-turn');
 });
 
 test('a live source turn defers the checkpoint until the next turn boundary', async (t) => {

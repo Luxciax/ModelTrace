@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openAppServer } from './app-server-client.mjs';
+import { CODEX_CLIENT_INFO, openAppServer } from './app-server-client.mjs';
 import { prepareCacheTransport } from './cache-transport.mjs';
 import { freezeSnapshot, publicSnapshot, removeSnapshot, verifySnapshot } from './fork-snapshot.mjs';
 import { forkPrompt } from './prompts.mjs';
@@ -85,7 +85,13 @@ export async function generateProbe(client, forkId, pending, isCancelled = async
   const completed = new Promise((yes, no) => { resolve = yes; reject = no; });
   // Avoid an unhandled rejection if transport events beat the turn/start reply.
   completed.catch(() => {});
-  const fail = (message) => { if (!settled) { settled = true; reject(new Error(message)); } };
+  const fail = (message, diagnostic = null) => {
+    if (settled) return;
+    settled = true;
+    const error = new Error(message);
+    if (diagnostic) error.diagnostic = diagnostic;
+    reject(error);
+  };
   const onMessage = (message) => {
     const p = message.params;
     if (p?.threadId !== forkId) return;
@@ -96,27 +102,30 @@ export async function generateProbe(client, forkId, pending, isCancelled = async
         outputTokens: last.outputTokens ?? null, cacheWriteInputTokens: last.cacheWriteInputTokens ?? null,
       });
     }
-    if (message.method === 'item/started' && !['userMessage', 'agentMessage', 'reasoning'].includes(p.item?.type)) fail('Probe attempted a tool or changed context; no sample accepted');
+    if (message.method === 'item/started' && !['userMessage', 'agentMessage', 'reasoning'].includes(p.item?.type)) fail(
+      'Probe attempted a tool or changed context; no sample accepted',
+      { code: 'unexpected_item', method: 'item/started', itemType: p.item?.type || 'unknown', itemPhase: p.item?.phase || null, eventTurnId: p.turnId || null },
+    );
     if (message.method === 'item/completed' && p.item?.type === 'agentMessage') {
       if (p.item.phase === 'final_answer' || p.item.phase === 'final') finalText = p.item.text;
       else if (!p.item.phase) otherText.push(p.item.text);
     }
     if (message.method === 'turn/completed') {
       if (turnId && p.turn?.id !== turnId) return;
-      if (p.turn?.status !== 'completed') return fail('Codex probe turn did not complete');
+      if (p.turn?.status !== 'completed') return fail('Codex probe turn did not complete', { code: 'turn_not_completed', method: 'turn/completed', turnStatus: p.turn?.status || null, eventTurnId: p.turn?.id || null });
       if (!settled) { settled = true; resolve(finalText ?? (otherText.length === 1 ? otherText[0] : null)); }
     }
-    if (message.method === 'error' && !p.willRetry) fail('Codex probe inference failed; no sample accepted');
+    if (message.method === 'error' && !p.willRetry) fail('Codex probe inference failed; no sample accepted', { code: 'inference_error', method: 'error', willRetry: false, eventTurnId: p.turnId || null });
   };
   client.listeners.add(onMessage);
-  client.exited?.then(() => fail('Codex probe transport exited before completion'));
-  const timeout = setTimeout(() => fail('Probe deadline expired'), Math.max(1, pending.expiresAt - Date.now()));
+  client.exited?.then(() => fail('Codex probe transport exited before completion', { code: 'transport_exited' }));
+  const timeout = setTimeout(() => fail('Probe deadline expired', { code: 'deadline_expired' }), Math.max(1, pending.expiresAt - Date.now()));
   let checking = false;
   const cancelCheck = setInterval(async () => {
     if (checking || settled) return;
     checking = true;
-    try { if (await isCancelled()) fail('Probe cancelled because task monitoring or comparison conditions changed'); }
-    catch { fail('Cannot verify probe ownership; no sample accepted'); }
+    try { if (await isCancelled()) fail('Probe cancelled because task monitoring or comparison conditions changed', { code: 'probe_cancelled' }); }
+    catch { fail('Cannot verify probe ownership; no sample accepted', { code: 'ownership_check_failed' }); }
     finally { checking = false; }
   }, 1000);
   try {
@@ -194,7 +203,7 @@ export async function runForkProbe(directory, session, challenge, env = process.
     const result = await dependencies.submit(directory, session, challenge, text, receipt, stateOptions);
     return result;
   } catch (error) {
-    const diagnostic = { stage, ...(error instanceof ProbeOutputError ? error.diagnostic : { code: 'probe_failed' }) };
+    const diagnostic = { stage, runtimeVersion: CODEX_CLIENT_INFO.version, ...(error?.diagnostic && typeof error.diagnostic === 'object' ? error.diagnostic : error instanceof ProbeOutputError ? error.diagnostic : { code: 'probe_failed' }) };
     if (dependencies.background && isLiveTurnBoundaryError(stage, error)) {
       const cancelled = await updateState((state) => {
         if (!state.enabled || state.pending?.id !== challenge || state.epoch !== pending.epoch) return true;
