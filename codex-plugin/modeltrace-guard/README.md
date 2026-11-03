@@ -2,7 +2,7 @@
 
 作者：xqy2006。
 
-按工具调用次数，在后台使用原 Codex 任务的冻结历史快照创建临时 fork 进行指纹检查。正常结果静默保存，主任务无需等待探针，也不会收到探针数字数组；异常时提醒并进入复测。评分使用插件附带的 ModelTrace 指纹库。探针由 Codex 自身生成，使用其已配置的账户、模型与厂商，消耗对应推理额度，不需要另填 API Key。
+新 Codex 任务会自动开启监测，并按工具调用次数在后台使用原任务的冻结历史快照创建临时 fork 进行指纹检查。正常结果静默保存，主任务无需等待探针，也不会收到探针数字数组；异常时提醒并进入复测。GPT Luna、Terra、Sol、Astra 之间识别到升档路由时只记录，不提醒、复测或阻止任务；`gpt-6.1-sol` 与 `gpt-6-astra` 仍按指纹库中的同一模型类别比较。评分使用插件附带的 ModelTrace 指纹库。探针由 Codex 自身生成，使用其已配置的账户、模型与厂商，消耗对应推理额度，不需要另填 API Key。
 
 ## 从 GitHub 安装
 
@@ -26,7 +26,7 @@ codex plugin add modeltrace-guard@modeltrace
 
 ### 加载与信任
 
-1. 安装后打开一个新 Codex 任务加载插件。
+1. 安装后打开一个新 Codex 任务加载插件；受信任的启动 hook 会为该新任务自动开启监测。
 2. 在终端运行兼容的 `codex`，进入其交互输入框后输入 `/hooks`。这不是 PowerShell 命令。
 3. 找到 ModelTrace Guard，审阅并信任所需 hooks，包括同步 `PreToolUse` 工具拦截，以及异步 `SessionStart`、`UserPromptSubmit`、`PostToolUse`。插件更新后，如果 hook 定义发生变化，需要重新审阅。
 4. 在目标任务中请求开启。探针执行器会检查拦截 hook 是否已启用并受信任。
@@ -34,6 +34,8 @@ codex plugin add modeltrace-guard@modeltrace
 ## 开启、调整、停止
 
 对目标任务说：
+
+新任务默认自动开启。已有任务或显式停止过的任务可再次手动开启：
 
 > 使用 $modeltrace-guard 为本任务开启监测，每隔 16–32 次工作工具调用检测，异常后复测 3 次，使用中文和英语。
 

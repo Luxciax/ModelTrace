@@ -155,6 +155,17 @@ export async function handleHook(event, directory, now = Date.now(), draw = rand
         if (state.enabled && oldModel) segment(state, now, 'reported_model_changed', draw);
       }
     }
+    const pristineSession = !state.enabled && !state.enabledAt && !state.startedAt && !state.issued
+      && !state.samples.length && !(state.alerts || []).length && !state.events.some((entry) => entry.type === 'monitoring_stopped');
+    if (currentTurn && hook === 'SessionStart' && event.source === 'startup' && pristineSession) {
+      await loadArtifacts();
+      state.enabled = true;
+      state.enabledAt = now;
+      state.startedAt = now;
+      state.runtimePaused = false;
+      segment(state, now, 'new_session_auto_monitoring', draw);
+      record(state, 'monitoring_auto_started', now, { source: event.source });
+    }
     const turnKey = state.turn || 'no-turn';
     const waiting = pendingAlerts(state);
     if (hook === 'PreToolUse') return preToolDecision(event, state, directory);

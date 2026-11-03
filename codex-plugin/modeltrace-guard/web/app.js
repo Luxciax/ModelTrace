@@ -8,15 +8,15 @@ let selected = access.get('session') || '', snapshot = null, dirty = false, load
 let archivePage = null, archiveKind = 'recent', notificationsEnabled = false, alertStreamStarted = false;
 const languageNames = { zh: '中文', en: '英语', ja: '日语', ko: '韩语', fr: '法语', de: '德语', es: '西语', pt: '葡语', ru: '俄语', ar: '阿语' };
 const outcomes = {
-  compatible: ['本次相符', 'good'], inconclusive: ['证据不足', 'warning'], unknown_expected_model: ['预期标签未收录', 'warning'], missing_expected_model: ['未获取预期模型', 'warning'],
+  compatible: ['本次相符', 'good'], allowed_upgrade: ['升档路由', 'good'], inconclusive: ['证据不足', 'warning'], unknown_expected_model: ['预期标签未收录', 'warning'], missing_expected_model: ['未获取预期模型', 'warning'],
   difference_signal: ['单次强差异', 'bad'], repeated_difference: ['重复差异', 'bad'], candidate_mismatch: ['弱候选不一致', 'warning'],
   not_started: ['尚未开启', 'neutral'], disabled: ['已停止监测', 'neutral'], coverage_gap: ['覆盖缺口', 'warning'], hooks_unverified: ['Hooks 尚未验证', 'warning'],
   awaiting_sample: ['后台检测待完成', 'neutral'], insufficient_evidence: ['等待更多证据', 'neutral'],
   task_halted: ['已要求停止任务', 'bad'], confirming_mismatch: ['异常复测中', 'warning'], confirmed_mismatch: ['复测全部不一致', 'bad'],
   waiting_for_work_tool: ['等待工作活动', 'neutral'],
 };
-const eventNames = { probe_issued: '发出探针', probe_missed: '采样缺口', segment_started: '开始新分段', frequency_configured: '更新采样设置', monitoring_stopped: '停止监测', compaction_started: '上下文压缩', interrupted: '任务被中断', session_ended: '任务结束', budget_paused: '采样数量上限暂停', agent_reported_user_notified: '智能体确认已告知', task_name_changed: '更新显示名称', codex_task_name_updated: '同步任务标题', model_label_observed: '获取声明模型', configuration_migrated: '迁移采样设置', confirmation_started: '开始异常复测', confirmation_result: '完成一次复测', confirmation_completed: '复测完成', confirmation_interrupted: '复测中断', task_halt_requested: '要求停止原任务', task_resumed: '按用户要求恢复任务' };
-const reasons = { monitoring_started: '开启监测', reported_model_changed: '声明模型改变', expected_model_changed: '预期模型改变', context_compaction: '上下文压缩', context_cleared: '上下文清空', reference_bank_changed: '参考库改变', expired_or_ignored: '探针过期或未提交', late_submission: '提交超时', monitoring_stopped: '监测停止', user_interrupted: '用户中断', session_ended: '任务结束', stop_continuation_not_completed: '收尾探针未完成', comparison_changed: '复测条件改变', comparison_unavailable: '无法比较预期模型' };
+const eventNames = { probe_issued: '发出探针', probe_missed: '采样缺口', segment_started: '开始新分段', frequency_configured: '更新采样设置', monitoring_auto_started: '新任务自动开启监测', monitoring_stopped: '停止监测', compaction_started: '上下文压缩', interrupted: '任务被中断', session_ended: '任务结束', budget_paused: '采样数量上限暂停', agent_reported_user_notified: '智能体确认已告知', task_name_changed: '更新显示名称', codex_task_name_updated: '同步任务标题', model_label_observed: '获取声明模型', configuration_migrated: '迁移采样设置', confirmation_started: '开始异常复测', confirmation_result: '完成一次复测', confirmation_completed: '复测完成', confirmation_interrupted: '复测中断', task_halt_requested: '要求停止原任务', task_resumed: '按用户要求恢复任务' };
+const reasons = { monitoring_started: '开启监测', new_session_auto_monitoring: '新任务自动开启监测', reported_model_changed: '声明模型改变', expected_model_changed: '预期模型改变', context_compaction: '上下文压缩', context_cleared: '上下文清空', reference_bank_changed: '参考库改变', expired_or_ignored: '探针过期或未提交', late_submission: '提交超时', monitoring_stopped: '监测停止', user_interrupted: '用户中断', session_ended: '任务结束', stop_continuation_not_completed: '收尾探针未完成', comparison_changed: '复测条件改变', comparison_unavailable: '无法比较预期模型' };
 const date = (at) => at ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : '—';
 const time = (at) => at ? new Date(at).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
 const txt = (id, text) => { $(id).textContent = text; };
@@ -78,7 +78,7 @@ function renderTrace(state) {
   const points = [...state.samples.map((sample) => ({ ...sample, kind: 'sample' })), ...state.events.filter((event) => event.type === 'probe_missed').map((event) => ({ ...event, kind: 'gap' }))].sort((a, b) => a.at - b.at).slice(-80);
   if (!points.length) { $('trace').replaceChildren(element('div', 'trace-empty', '尚无已完成检查点，等待后台检测结果')); txt('trace-range', '暂无已完成检查点'); return; }
   $('trace').replaceChildren(...points.map((point) => {
-    const kind = point.kind === 'gap' ? 'gap' : point.outcome === 'compatible' ? 'compatible' : ['difference_signal', 'repeated_difference'].includes(point.outcome) ? 'difference' : 'uncertain';
+    const kind = point.kind === 'gap' ? 'gap' : ['compatible', 'allowed_upgrade'].includes(point.outcome) ? 'compatible' : ['difference_signal', 'repeated_difference'].includes(point.outcome) ? 'difference' : 'uncertain';
     const node = element('button', `trace-point ${kind}`); node.type = 'button';
     node.title = `${date(point.at)} · ${point.kind === 'gap' ? '采样缺口' : outcomes[displayOutcome(point)]?.[0] || point.outcome}${point.prediction ? ` · ${point.prediction}` : ''}`;
     node.setAttribute('aria-label', node.title); node.addEventListener('click', () => showDetail(point)); return node;

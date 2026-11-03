@@ -1,6 +1,6 @@
 ---
 name: modeltrace-guard
-description: Start, configure, inspect or stop background Codex model fingerprint monitoring using disposable forks of a frozen task snapshot. Configure tool intervals, retries and languages; open the dashboard, report mismatches and stop original work when every configured retry mismatches. Installation alone does not enable monitoring.
+description: Automatically monitor new Codex tasks, or start, configure, inspect and stop existing task monitoring, using disposable forks of a frozen task snapshot. Configure tool intervals, retries and languages; open the dashboard, report mismatches and stop original work when every configured retry mismatches.
 ---
 
 # ModelTrace Guard
@@ -13,7 +13,9 @@ The management workflow below applies to the original monitored task. In a dispo
 
 ## Enable and configure
 
-Only enable monitoring when the user asks for this task. Installation alone does not enable it. Use the real `CODEX_THREAD_ID`, or a trusted hook's actual session ID if unavailable; never invent a task ID. Preserve a user-defined task name. When a verified app task title is available, pass it to `start --name`; never use the shared workspace name as a task title. The background snapshot also captures the native task title without reading transcript contents. Do not derive a model identity from the classifier's prediction.
+Trusted `SessionStart` hooks automatically enable monitoring for a newly created root task. Existing tasks and tasks that were explicitly stopped stay unchanged until the user starts them again. Use the real `CODEX_THREAD_ID`, or a trusted hook's actual session ID if unavailable; never invent a task ID. Preserve a user-defined task name. When a verified app task title is available, pass it to `start --name`; never use the shared workspace name as a task title. The background snapshot also captures the native task title without reading transcript contents. Do not derive a model identity from the classifier's prediction.
+
+When a GPT fingerprint candidate is a higher capability tier than the expected GPT tier (`Luna < Terra < Sol < Astra`), record it as `allowed_upgrade` and continue silently. It must not create an alert, retry batch or task halt. Aliases such as `gpt-6.1-sol` and `gpt-6-astra` remain a compatible shared class.
 
 Run `node <guard> doctor` to verify bundled files. `doctor --fork true` additionally creates native snapshot/ephemeral forks without inference, checks runtime settings, trusted synchronous tool blocking and native async background hooks, then queues deletion of its temporary base. Read the returned readiness and cleanup status honestly. If runtime selection is ambiguous, the user may set `MODELTRACE_CODEX_PATH` to the absolute executable used by their Codex app. Never fix this by changing an unrelated provider/account or bypassing hook trust.
 

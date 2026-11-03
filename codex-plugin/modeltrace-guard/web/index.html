@@ -35,7 +35,7 @@
       <article class="metric"><div class="metric-label">不一致记录 <span>03</span></div><div class="metric-value alert-value" id="mismatches">—</div><div id="alert-note" class="metric-note">强差异与弱候选分开记录</div></article>
       <article class="metric"><div class="metric-label">采样缺口 <span>04</span></div><div class="metric-value" id="missed">—</div><div id="hook-note" class="metric-note">尚未观察到 hooks</div></article>
     </section>
-    <section id="empty" class="panel empty" hidden><div class="empty-mark">⌁</div><h2>还没有任务监测记录</h2><p>在要监测的 Codex 任务里发送下面这句话。<br>打开此页面不会开启采样，也不会调用模型。</p><div class="start-prompt"><code>使用 $modeltrace-guard 为本任务开启监测</code><button id="copy-start" class="button secondary" type="button">复制提示词</button></div><small>首次使用请加载插件并在 Codex CLI 的 /hooks 中审阅信任。</small></section>
+    <section id="empty" class="panel empty" hidden><div class="empty-mark">⌁</div><h2>还没有任务监测记录</h2><p>受信任的插件会为新 Codex 任务自动开启监测。<br>已有任务可发送下面这句话手动开启。</p><div class="start-prompt"><code>使用 $modeltrace-guard 为本任务开启监测</code><button id="copy-start" class="button secondary" type="button">复制提示词</button></div><small>首次使用请加载插件并在 Codex CLI 的 /hooks 中审阅信任。</small></section>
     <div id="monitoring" hidden>
       <p id="fork-note" class="bank-source-note"></p>
       <section id="confirmation-panel" class="panel" hidden><div class="panel-heading"><div><h2>异常复测</h2></div><span id="confirmation-status" class="pill warning"></span></div><p id="confirmation-note" class="section-note" role="status"></p></section>

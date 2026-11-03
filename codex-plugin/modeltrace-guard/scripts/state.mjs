@@ -100,7 +100,16 @@ export function isDue(state, now) {
 
 export function isMismatch(sample) {
   return Boolean(sample.expected && sample.prediction && (sample.expectedClass || sample.expected) !== sample.prediction && Number.isFinite(sample.expectedWeight)
-    && !['missing_expected_model', 'unknown_expected_model'].includes(sample.outcome));
+    && !['allowed_upgrade', 'missing_expected_model', 'unknown_expected_model'].includes(sample.outcome));
+}
+
+const GPT_CAPABILITY_TIERS = Object.freeze({ luna: 1, terra: 2, sol: 3, astra: 4 });
+
+export function isAllowedUpgrade(expected, prediction) {
+  if (expected?.family !== 'gpt' || prediction?.family !== 'gpt') return false;
+  const expectedTier = GPT_CAPABILITY_TIERS[expected.model.match(/-(luna|terra|sol|astra)$/)?.[1]];
+  const predictionTier = GPT_CAPABILITY_TIERS[prediction.model.match(/-(luna|terra|sol|astra)$/)?.[1]];
+  return Number.isFinite(expectedTier) && Number.isFinite(predictionTier) && predictionTier > expectedTier;
 }
 
 export function interruptConfirmation(state, now, reason) {
@@ -224,6 +233,7 @@ export function classifySample(result, expected, previous = []) {
   if (!expected) outcome = 'missing_expected_model';
   else if (!candidate) outcome = 'unknown_expected_model';
   else if (top.model === expectedClass && top.probability >= 0.5) outcome = 'compatible';
+  else if (isAllowedUpgrade(candidate, top)) outcome = 'allowed_upgrade';
   else if (top.model !== expectedClass && top.probability >= 0.8 && candidate.probability <= 0.15 && top.probability - candidate.probability >= 0.65) outcome = 'difference_signal';
   const recent = [...previous.slice(-2), { prediction: top.model, outcome }];
   if (outcome === 'difference_signal' && recent.filter((sample) => sample.prediction === top.model && ['difference_signal', 'repeated_difference'].includes(sample.outcome)).length >= 2) outcome = 'repeated_difference';
