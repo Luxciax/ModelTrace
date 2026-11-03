@@ -158,13 +158,25 @@ export function updateConfirmation(state, sample, checkpoint, now) {
   record(state, 'confirmation_started', now, { confirmation: sample.challenge, target: state.config.retryCount, language: sample.language });
 }
 
-export function setTurn(state, turn) {
+export function setTurn(state, turn, now = Date.now()) {
   if (turn && state.turn !== turn) {
     // Background hook processes can reach the state lock out of order. A late
     // completion from a known older turn must not roll model metadata backward.
     if (state.retiredTurns?.includes(turn)) return false;
-    const firstBinding = state.turn === null;
-    if (!firstBinding) state.retiredTurns = [...(state.retiredTurns || []).slice(-63), state.turn];
+    const previousTurn = state.turn;
+    const firstBinding = previousTurn === null;
+    if (!firstBinding) state.retiredTurns = [...(state.retiredTurns || []).slice(-63), previousTurn];
+    // A live-turn fork has no stable persisted boundary. Its deadline is paused
+    // until a real next-turn boundary exists, then the original checkpoint TTL
+    // starts again. This keeps the retry bounded without turning a long source
+    // turn into a false coverage gap.
+    if (!firstBinding && state.pending?.deferTurn && state.pending.deferTurn === previousTurn) {
+      const ttl = Number.isFinite(state.pending.expiresAt) && Number.isFinite(state.pending.at)
+        ? Math.max(1, state.pending.expiresAt - state.pending.at)
+        : state.config.pendingSeconds * 1000;
+      state.pending.expiresAt = now + ttl;
+      delete state.pending.deferTurn;
+    }
     state.turn = turn;
     if (!firstBinding) state.turnIssued = 0;
     state.stopTurn = null;
@@ -191,11 +203,18 @@ export function segment(state, now, reason, draw = randomInt) {
   schedule(state, now, draw);
 }
 
+export function isPendingExpired(state, now = Date.now()) {
+  if (!state?.pending) return false;
+  if (state.pending.deferTurn && state.pending.deferTurn === state.turn) return false;
+  return now >= state.pending.expiresAt;
+}
+
 export function expirePending(state, now) {
   if (!state.pending) return false;
   // Parallel tool completions may all arrive before the model gets a continuation.
-  // Never infer refusal/ignore just from their count.
-  if (now >= state.pending.expiresAt) {
+  // Never infer refusal/ignore just from their count. A live-turn deferral pauses
+  // this deadline until setTurn observes the next stable turn boundary.
+  if (isPendingExpired(state, now)) {
     abandon(state, now, 'expired_or_ignored');
     // Do not immediately force another probe: avoid loops if the model is refusing probes.
     schedule(state, now);

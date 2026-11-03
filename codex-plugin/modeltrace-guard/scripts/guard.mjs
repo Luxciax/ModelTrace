@@ -9,7 +9,7 @@ import { readGlobalSettings } from './settings.mjs';
 import { dispatchQueuedCleanups, removeSnapshot, requestCleanupSweep } from './fork-snapshot.mjs';
 export { summarize } from './status.mjs';
 import {
-  DEFAULTS, WARNING, abandon, classifySample, dataDirectory, digest, expirePending, issue,
+  DEFAULTS, WARNING, abandon, classifySample, dataDirectory, digest, expirePending, isPendingExpired, issue,
   readState, recentComparable, record, schedule, segment, setTaskName, setTurn, validateConfig, validateNumbers, withState, workspaceName,
   interruptConfirmation, updateConfirmation, processAlive, BACKGROUND_STATE_LOCK,
 } from './state.mjs';
@@ -126,7 +126,7 @@ export async function handleHook(event, directory, now = Date.now(), draw = rand
     state.lastHookAt = now;
     if (background) state.lastBackgroundHookAt = now;
     state.hooksSeen += 1;
-    const currentTurn = setTurn(state, event.turn_id);
+    const currentTurn = setTurn(state, event.turn_id, now);
     if (currentTurn && ['SessionStart', 'UserPromptSubmit'].includes(hook)) { state.runtimePaused = false; state.runtimeEndedAt = null; }
     if (currentTurn && hook === 'SessionStart' && ['startup', 'resume'].includes(event.source)) {
       requestCleanupSweep(directory);
@@ -358,7 +358,7 @@ export async function run(args, env = process.env, receipt = null) {
         segment(state, now, 'reference_bank_changed');
         return { accepted: false, reason: 'Bank changed since the previous checkpoint; new comparison segment required', warning: WARNING };
       }
-      if (now >= p.expiresAt) {
+      if (isPendingExpired(state, now)) {
         abandon(state, now, 'late_submission');
         return { accepted: false, reason: 'Checkpoint expired; no fingerprint was counted', warning: WARNING };
       }

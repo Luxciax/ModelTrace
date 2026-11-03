@@ -1,11 +1,11 @@
-import { WARNING, currentOutcome, displayOutcome, processAlive, publicSample, sessionPath, validateConfig } from './state.mjs';
+import { WARNING, currentOutcome, displayOutcome, isPendingExpired, processAlive, publicSample, sessionPath, validateConfig } from './state.mjs';
 import { pendingAlerts } from './alerts.mjs';
 import { historyCount } from './history.mjs';
 import { publicSnapshot } from './fork-snapshot.mjs';
 
 export function summarize(state, directory, now = Date.now()) {
   if (!state) return { enabled: false, status: 'not_started', warning: WARNING };
-  const pendingExpired = state.pending && now >= state.pending.expiresAt;
+  const pendingExpired = isPendingExpired(state, now);
   const boundary = Math.max(state.runtimeStartedAt || 0, state.enabledAt || state.startedAt || state.createdAt);
   const workHookAge = state.lastWorkHookAt ? now - state.lastWorkHookAt : null;
   const workHookObserved = !state.runtimeEndedAt && state.lastWorkHookAt >= boundary && workHookAge !== null && workHookAge < 10 * 60 * 1000;

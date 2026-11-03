@@ -6,7 +6,7 @@ import { prepareCacheTransport } from './cache-transport.mjs';
 import { freezeSnapshot, publicSnapshot, removeSnapshot, verifySnapshot } from './fork-snapshot.mjs';
 import { forkPrompt } from './prompts.mjs';
 import { ProbeOutputError } from './probe-output.mjs';
-import { BACKGROUND_STATE_LOCK, abandon, digest, interruptConfirmation, processAlive, readState, record, schedule, setCodexTaskName, withState } from './state.mjs';
+import { BACKGROUND_STATE_LOCK, abandon, digest, interruptConfirmation, isPendingExpired, processAlive, readState, record, schedule, setCodexTaskName, withState } from './state.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function forkParameters(snapshot, cacheTransport = null) {
@@ -146,7 +146,7 @@ export async function runForkProbe(directory, session, challenge, env = process.
       || (state.probeRun && processAlive(state.probeRun.pid)))) return false;
     if (!state.enabled || state.taskHalt || !state.pending || state.pending.id !== challenge) throw new Error('No matching live fork checkpoint');
     if (state.probeRun && processAlive(state.probeRun.pid)) throw new Error('A fork probe is already running for this task');
-    if (Date.now() >= state.pending.expiresAt) throw new Error('Checkpoint has expired');
+    if (isPendingExpired(state)) throw new Error('Checkpoint has expired');
     if (state.pending.confirmationId && !state.forkSnapshot) throw new Error('Retry snapshot is missing; a fresh snapshot cannot replace it');
     state.probeRun = { pid: process.pid, challenge, startedAt: Date.now() };
     pending = structuredClone(state.pending); snapshot = state.forkSnapshot;
@@ -174,7 +174,7 @@ export async function runForkProbe(directory, session, challenge, env = process.
     await enforceTrust(client, snapshot.cwd);
     await updateState((state) => {
       if (!state.enabled || state.pending?.id !== challenge) throw new Error('Checkpoint cancelled');
-      if (Date.now() >= state.pending.expiresAt) throw new Error('Checkpoint expired during fork preparation');
+      if (isPendingExpired(state)) throw new Error('Checkpoint expired during fork preparation');
       if (state.forkSnapshot.effective && JSON.stringify(state.forkSnapshot.effective) !== JSON.stringify(effective)) throw new Error('Fork settings changed within the retry batch');
       state.forkSnapshot.effective = effective;
       state.forkHealth = { checkedAt: Date.now(), ready: true, boundary: 'persisted_rollout', toolsBlocked: true };

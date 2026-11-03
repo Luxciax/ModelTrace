@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pendingAlerts, userNotice } from './alerts.mjs';
 import { controlContext, handleHook, notificationContext, submitForkResult } from './guard.mjs';
 import { runForkProbe } from './fork-runner.mjs';
-import { BACKGROUND_STATE_LOCK, expirePending, processAlive, readState, record, withState } from './state.mjs';
+import { BACKGROUND_STATE_LOCK, expirePending, isPendingExpired, processAlive, readState, record, withState } from './state.mjs';
 import { summarize } from './status.mjs';
 
 export const BACKGROUND_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse'];
@@ -107,7 +107,7 @@ export async function waitForConfirmation(directory, session, id, { timeoutMs = 
   do {
     state = await readState(directory, session);
     if (state?.confirmation?.id !== id) throw new Error('No matching confirmation batch');
-    if (state.pending && Date.now() >= state.pending.expiresAt) {
+    if (isPendingExpired(state, Date.now())) {
       await withState(directory, session, (current) => { expirePending(current, Date.now()); });
       state = await readState(directory, session);
     }
