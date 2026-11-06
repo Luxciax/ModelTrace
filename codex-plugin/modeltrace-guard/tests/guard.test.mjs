@@ -8,7 +8,7 @@ import {
   DEFAULTS, classifySample, dataDirectory, isDue, issue, newState, readState, schedule,
   recentComparable, sessionPath, setTurn, validateConfig, validateNumbers, withState,
 } from '../scripts/state.mjs';
-import { ROOT, challengeContext, handleHook, loadArtifacts, summarize } from '../scripts/guard.mjs';
+import { ROOT, analyzeCacheDiagnostics, challengeContext, fingerprintFamilyEvidence, handleHook, loadArtifacts, summarize } from '../scripts/guard.mjs';
 import { run } from './fixture-runner.mjs';
 import { LANGUAGES, localizedPrompt, forkPrompt } from '../scripts/prompts.mjs';
 import { writeGlobalSettings } from '../scripts/settings.mjs';
@@ -44,12 +44,12 @@ test('frequency is tools-only and retry count defaults to 3 with configurable bo
   for (const patch of [{ mode: 'time' }, { mode: 'either' }, { mode: 'both' }, { mode: 'background' }, { toolMin: 0 }, { secondsMin: -1 }, { toolMin: 4, toolMax: 2 }, { secondsMin: 1000, secondsMax: 3 }, { retryCount: 0 }, { retryCount: 101 }, { retryCount: 2.5 }, { retryCount: '3' }, { maxPerTurn: 50, maxPerSession: 40 }, { maxPerSession: 1001 }, { toolMin: NaN }, { toolMax: 2.5 }, { rogue: 1 }, { languages: [] }, { languages: ['xx'] }, { languages: ['en', 'en'] }]) assert.throws(() => validateConfig(patch));
 });
 
-test('new tasks default to 16–32 work tools without overwriting saved custom intervals', async (t) => {
-  assert.equal(DEFAULTS.toolMin, 16); assert.equal(DEFAULTS.toolMax, 32);
-  assert.equal(validateConfig({}).toolMin, 16); assert.equal(validateConfig({}).toolMax, 32);
+test('new tasks default to 32–64 work tools without overwriting saved custom intervals', async (t) => {
+  assert.equal(DEFAULTS.toolMin, 32); assert.equal(DEFAULTS.toolMax, 64);
+  assert.equal(validateConfig({}).toolMin, 32); assert.equal(validateConfig({}).toolMax, 64);
   const directory = await fixture(t);
   const started = await run(['start', ...flags(directory)], {});
-  assert.equal(started.frequency.toolMin, 16); assert.equal(started.frequency.toolMax, 32);
+  assert.equal(started.frequency.toolMin, 32); assert.equal(started.frequency.toolMax, 64);
   assert.equal(started.probesIssued, 1);
   for (const [toolMin, toolMax] of [[8, 16], [30, 60], [40, 40]]) {
     await run(['configure', ...flags(directory), '--tool-min', String(toolMin), '--tool-max', String(toolMax)], {});
@@ -63,7 +63,7 @@ test('never-enabled legacy hook records pick up new defaults but restarted tasks
   const dir = await fixture(t);
   await withState(dir, session, (state) => { state.config.toolMin = 8; state.config.toolMax = 16; });
   const first = await run(['start', ...flags(dir)], {});
-  assert.equal(first.frequency.toolMin, 16); assert.equal(first.frequency.toolMax, 32);
+  assert.equal(first.frequency.toolMin, 32); assert.equal(first.frequency.toolMax, 64);
   await run(['configure', ...flags(dir), '--tool-min', '8', '--tool-max', '16'], {});
   await run(['stop', ...flags(dir)], {});
   const restarted = await run(['start', ...flags(dir)], {});
@@ -383,6 +383,43 @@ test('checksum bank and scorer are valid and packaged GPT/o-series families are 
   const gpt = bank.models.filter((model) => /^(?:gpt-|o\d)/.test(model.id));
   assert.ok(gpt.length > 0);
   for (const model of gpt) assert.equal(model.family, 'gpt', model.id);
+});
+
+test('family evidence distinguishes GPT, DeepSeek and Gemini only for strong cross-family differences', () => {
+  const results = [
+    { model: 'deepseek-v4-flash-0731', family: 'deepseek', probability: 0.91, aliases: [] },
+    { model: 'gpt-5.6-sol', family: 'gpt', probability: 0.05, aliases: ['gpt-5.6'] },
+    { model: 'gemini-3-pro', family: 'gemini', probability: 0.04, aliases: [] },
+  ];
+  assert.deepEqual(fingerprintFamilyEvidence({ results }, 'gpt-5.6', { outcome: 'difference_signal', expectedClass: 'gpt-5.6-sol' }), {
+    predictionFamily: 'deepseek', expectedFamily: 'gpt', crossFamilyMismatch: true,
+  });
+  assert.equal(fingerprintFamilyEvidence({ results }, 'gpt-5.6', { outcome: 'candidate_mismatch', expectedClass: 'gpt-5.6-sol' }).crossFamilyMismatch, false);
+  assert.deepEqual(fingerprintFamilyEvidence({ results: [results[1], results[0], results[2]] }, 'gpt-5.6', { outcome: 'compatible', expectedClass: 'gpt-5.6-sol' }), {
+    predictionFamily: 'gpt', expectedFamily: 'gpt', crossFamilyMismatch: false,
+  });
+});
+
+test('cache diagnostics separate routing signals from rebuilds, input growth and unavailable counters', () => {
+  const effective = { model: 'gpt-5.6-sol', provider: 'openai', effort: 'high', serviceTier: 'default', instructionSourcesSha256: 'instructions' };
+  const prior = Array.from({ length: 3 }, () => ({ epoch: 2, reportedModel: 'gpt-5.6-sol', fork: { cacheScope: 'source_session', effective, usage: { inputTokens: 10000, cachedInputTokens: 8000, cacheWriteInputTokens: 0 } } }));
+  const sample = (usage, extra = {}) => ({ epoch: 2, reportedModel: 'gpt-5.6-sol', outcome: 'difference_signal', crossFamilyMismatch: true, fork: { cacheScope: 'source_session', effective, usage }, ...extra });
+  const routing = analyzeCacheDiagnostics(prior, sample({ inputTokens: 10000, cachedInputTokens: 2000, cacheWriteInputTokens: 0 }));
+  assert.equal(routing.status, 'cache_drop'); assert.equal(routing.routingSignal, true); assert.equal(routing.severity, 'danger');
+  const rebuild = analyzeCacheDiagnostics(prior, sample({ inputTokens: 10000, cachedInputTokens: 0, cacheWriteInputTokens: 10000 }, { crossFamilyMismatch: false }));
+  assert.equal(rebuild.status, 'cache_rebuild'); assert.equal(rebuild.routingSignal, false);
+  const growth = analyzeCacheDiagnostics(prior, sample({ inputTokens: 20000, cachedInputTokens: 8000, cacheWriteInputTokens: 0 }, { crossFamilyMismatch: false }));
+  assert.equal(growth.status, 'input_growth'); assert.equal(growth.routingSignal, false);
+  const native = analyzeCacheDiagnostics(prior, { ...sample({ inputTokens: 10000, cachedInputTokens: 0, cacheWriteInputTokens: 0 }), fork: { cacheScope: 'native_fork', effective, usage: { inputTokens: 10000, cachedInputTokens: 0, cacheWriteInputTokens: 0 } } });
+  assert.equal(native.status, 'not_comparable');
+  assert.equal(analyzeCacheDiagnostics(prior, sample({ inputTokens: 10000, cacheWriteInputTokens: 0 })).status, 'unavailable');
+});
+
+test('cache baseline resets when effective model metadata changes', () => {
+  const effective = { model: 'gpt-5.6-sol', provider: 'openai', effort: 'high', serviceTier: 'default', instructionSourcesSha256: 'instructions' };
+  const prior = Array.from({ length: 3 }, () => ({ epoch: 1, reportedModel: 'gpt-5.6-sol', fork: { cacheScope: 'source_session', effective, usage: { inputTokens: 9000, cachedInputTokens: 7000, cacheWriteInputTokens: 0 } } }));
+  const changed = analyzeCacheDiagnostics(prior, { epoch: 1, reportedModel: 'gpt-5.6-sol', outcome: 'compatible', crossFamilyMismatch: false, fork: { cacheScope: 'source_session', effective: { ...effective, effort: 'medium' }, usage: { inputTokens: 9000, cachedInputTokens: 1000, cacheWriteInputTokens: 0 } } });
+  assert.equal(changed.status, 'metadata_changed'); assert.deepEqual(changed.metadataChanges, ['effort']); assert.equal(changed.baselineSamples, 0); assert.equal(changed.routingSignal, false);
 });
 
 test('stable data path is shared between hooks and task shell even with PLUGIN_DATA differences', () => {

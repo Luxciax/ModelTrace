@@ -22,7 +22,7 @@ Run `node <guard> doctor` to verify bundled files. `doctor --fork true` addition
 Run `start` with only the requested overrides:
 
 - `--expected <exact-label>` sets the comparison label; `--expected auto` follows Codex metadata. `models` lists bank labels. Missing metadata and a nonempty unlisted model are different outcomes; neither is a mismatch.
-- `--tool-min 16 --tool-max 32` sets a random interval of observed work-tool completions (the default). Equal values fix the interval. Existing tasks retain their saved intervals until configured. No elapsed-time scheduling or turn/task count caps.
+- `--tool-min 32 --tool-max 64` sets a random interval of observed work-tool completions (the default). Equal values fix the interval. Existing tasks retain their saved intervals until configured. No elapsed-time scheduling or turn/task count caps.
 - `--retry-count 3` sets additional tests after an initial mismatch; default 3, allowed 1–100. A request such as “复测改成 5 次” maps to `configure --retry-count 5`.
 - `--pending-seconds 180` is the issuance-to-completion deadline, not sampling frequency. Changes apply only to newly issued checkpoints.
 - `--languages zh,en,ja,ko,fr,de,es,pt,ru,ar` selects the random language pool. Default `zh,en`; one language fixes it.
@@ -38,6 +38,8 @@ Run `start` with only the requested overrides:
 The runner creates one native, persisted baseline fork from the task's stored history and never starts a model turn in that baseline. The initial probe and every retry each fork this SAME baseline at the SAME turn boundary. Each probe is ephemeral and text-only; the runner closes its Codex process after completion. Raw arrays remain in the local sample store, not the parent tool result. The shared baseline is deleted after the normal probe or the whole retry batch. A retained baseline can briefly appear in Codex's task list; do not use or edit it. Cleanup refuses original tasks, altered baselines and baselines with new persisted descendants.
 
 The baseline preserves Codex's persisted history, not unseen in-flight memory. A mid-turn fork can contain Codex's interruption marker. Probe arrays stay outside the parent task; its existing messages remain unchanged. Language variation and a fixed prefix do not guarantee an invisible test or a cache hit. Report returned cached-token counts when available; null means unavailable. A fork samples its own continuation, not proof of how an earlier parent request was routed.
+
+The dashboard cache panel compares only `source_session` samples with the same model, provider, reasoning effort, service tier, instruction-source signature and context segment. It needs at least three prior valid samples; `native_fork` is shown as a one-off measurement and is not treated as a continuous baseline. Cache writes and input growth are classified separately. A sudden drop in both hit rate and absolute cached tokens, combined with a strong cross-family fingerprint difference, is shown as a suspected routing change—not backend authentication. Cache evidence alone never triggers the task-halt flow.
 
 On a runner error, report the recorded coverage gap and the returned diagnostic code/stage when available. A queued follow-up is not a successful check. Do not fabricate a result or fall back to in-context generation. At most one checkpoint runs per task. Probe failures, expiry, compaction, changed comparison conditions and interruptions do not count as mismatches.
 

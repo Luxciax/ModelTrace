@@ -40,11 +40,24 @@
       <p id="fork-note" class="bank-source-note"></p>
       <section id="confirmation-panel" class="panel" hidden><div class="panel-heading"><div><h2>异常复测</h2></div><span id="confirmation-status" class="pill warning"></span></div><p id="confirmation-note" class="section-note" role="status"></p></section>
       <section class="panel trace-panel"><div class="panel-heading"><div><h2>指纹轨迹</h2></div><div class="legend"><span><i class="dot compatible"></i>相符</span><span><i class="dot difference"></i>强差异</span><span><i class="dot uncertain"></i>不确定</span><span><i class="dot gap"></i>缺口</span></div></div><div id="trace" class="trace" aria-label="最近检查点轨迹"></div><div class="trace-footer"><span id="trace-range">等待第一个样本</span><span>每个点代表一次检查点 · 点击查看详情</span></div></section>
+      <section class="panel cache-panel" aria-label="缓存命中诊断">
+        <div class="panel-heading"><div><h2>缓存命中监测</h2><p class="section-note">只比较同一缓存会话、模型配置和上下文分段；缓存变化不是后端身份认证。</p></div><span id="cache-status" class="pill neutral">等待缓存数据</span></div>
+        <div class="cache-summary">
+          <div class="cache-primary"><span>本次缓存命中率</span><strong id="cache-rate">—</strong><small id="cache-caption">等待第一个有效样本</small></div>
+          <div class="cache-stat"><span>缓存输入 / 总输入</span><strong id="cache-tokens">—</strong></div>
+          <div class="cache-stat"><span>同会话历史基线</span><strong id="cache-baseline">—</strong></div>
+          <div class="cache-stat"><span>缓存范围</span><strong id="cache-scope">—</strong></div>
+        </div>
+        <div class="cache-chart-heading"><strong>缓存命中率趋势</strong><div class="cache-legend"><span><i class="cache-legend-line"></i>命中率</span><span><i class="cache-legend-line baseline"></i>历史基线</span></div></div>
+        <div id="cache-chart" class="cache-chart"></div>
+        <div id="cache-events" class="cache-events"></div>
+        <p id="cache-note" class="section-note">缓存异常是辅助证据，不是后端身份认证。</p>
+      </section>
       <div class="two-columns">
         <section class="panel alerts-panel"><div class="panel-heading"><div><h2>智能体提醒</h2></div><span id="pending-alerts" class="pill neutral">无待告知</span></div><p class="section-note">检测到指纹不一致时，要求智能体主动告知用户。</p><div id="alerts" class="alert-list"></div></section>
         <section class="panel latest-panel"><div class="panel-heading"><div><h2>最近一次指纹</h2></div><span id="latest-language" class="pill neutral">—</span></div><div id="latest"></div><p class="section-note weight-note">参考库内的相对权重</p><div id="weights" class="weights"></div></section>
       </div>
-      <section id="history" class="panel history-panel"><div class="panel-heading"><div><h2>探针与事件记录</h2></div><label class="filter-label">筛选 <select id="filter"><option value="all">全部记录</option><option value="mismatch">候选不一致</option><option value="gap">采样缺口</option></select></label></div><div class="bank-source-note"><label>历史范围 <select id="history-kind"><option value="recent">最近记录</option><option value="samples">完整探针历史</option><option value="events">完整事件历史</option><option value="alerts">完整提醒历史</option></select></label><button id="history-more" class="text-button" type="button" disabled>更早一页</button></div><div class="table-scroll"><table><thead><tr><th>时间</th><th>结果 / 事件</th><th>采样时预期 → 指纹候选</th><th>语言</th><th>分段</th></tr></thead><tbody id="rows"></tbody></table></div><p id="history-note" class="table-note"></p></section>
+      <section id="history" class="panel history-panel"><div class="panel-heading"><div><h2>探针与事件记录</h2></div><label class="filter-label">筛选 <select id="filter"><option value="all">全部记录</option><option value="mismatch">候选不一致</option><option value="gap">采样缺口</option><option value="cache">缓存异常</option></select></label></div><div class="bank-source-note"><label>历史范围 <select id="history-kind"><option value="recent">最近记录</option><option value="samples">完整探针历史</option><option value="events">完整事件历史</option><option value="alerts">完整提醒历史</option></select></label><button id="history-more" class="text-button" type="button" disabled>更早一页</button></div><div class="table-scroll"><table><thead><tr><th>时间</th><th>结果 / 事件</th><th>采样时预期 → 指纹候选</th><th>语言</th><th>缓存命中</th><th>分段</th></tr></thead><tbody id="rows"></tbody></table></div><p id="history-note" class="table-note"></p></section>
       <section id="settings" class="panel settings-panel"><div class="panel-heading"><div><h2>采样设置</h2></div><span id="settings-status" class="muted">修改后在原任务内生效</span></div><form id="config-form"><fieldset id="config-fields"><div class="settings-grid">
         <div class="field"><span>工作工具间隔（次）</span><div class="range"><input name="toolMin" type="number" min="1" max="1000000" required aria-label="最少工具次数"><span>—</span><input name="toolMax" type="number" min="1" max="1000000" required aria-label="最多工具次数"></div></div>
         <label class="field">异常复测次数<input name="retryCount" type="number" min="1" max="100" required></label>

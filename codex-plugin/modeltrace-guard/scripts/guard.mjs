@@ -15,6 +15,106 @@ import {
 } from './state.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CACHE_BASELINE_MIN = 3;
+const CACHE_BASELINE_WINDOW = 8;
+const CACHE_MIN_INPUT_TOKENS = 1024;
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function cacheObservation(sample) {
+  const usage = sample?.fork?.usage;
+  if (sample?.fork?.cacheScope !== 'source_session' || !usage
+    || !Number.isSafeInteger(usage.inputTokens) || usage.inputTokens < CACHE_MIN_INPUT_TOKENS
+    || !Number.isSafeInteger(usage.cachedInputTokens) || usage.cachedInputTokens < 0
+    || usage.cachedInputTokens > usage.inputTokens) return null;
+  const effective = sample.fork.effective || {};
+  return {
+    epoch: sample.epoch, cacheScope: sample.fork.cacheScope,
+    model: effective.model || sample.reportedModel || null, provider: effective.provider || null,
+    effort: effective.effort || null, serviceTier: effective.serviceTier || null,
+    instructionSourcesSha256: effective.instructionSourcesSha256 || null,
+    inputTokens: usage.inputTokens, cachedInputTokens: usage.cachedInputTokens,
+    cacheWriteInputTokens: Number.isSafeInteger(usage.cacheWriteInputTokens) ? usage.cacheWriteInputTokens : null,
+    hitRate: usage.cachedInputTokens / usage.inputTokens,
+  };
+}
+
+function cacheKey(observation) {
+  return JSON.stringify([observation.epoch, observation.cacheScope, observation.model, observation.provider,
+    observation.effort, observation.serviceTier, observation.instructionSourcesSha256]);
+}
+
+export function fingerprintFamilyEvidence(result, expected, evidence) {
+  const predicted = result?.results?.[0] || null;
+  const expectedClass = evidence?.expectedClass || expected;
+  const expectedCandidate = result?.results?.find((item) => item.model === expectedClass || item.aliases?.includes(expected)) || null;
+  const crossFamilyMismatch = Boolean(predicted?.family && expectedCandidate?.family
+    && predicted.family !== expectedCandidate.family
+    && ['difference_signal', 'repeated_difference'].includes(evidence?.outcome));
+  return {
+    predictionFamily: predicted?.family || null,
+    expectedFamily: expectedCandidate?.family || null,
+    crossFamilyMismatch,
+  };
+}
+
+export function analyzeCacheDiagnostics(previousSamples, sample) {
+  const usage = sample?.fork?.usage || null;
+  const cacheScope = sample?.fork?.cacheScope || 'unknown';
+  const inputTokens = Number.isSafeInteger(usage?.inputTokens) ? usage.inputTokens : null;
+  const cachedInputTokens = Number.isSafeInteger(usage?.cachedInputTokens) ? usage.cachedInputTokens : null;
+  const cacheWriteInputTokens = Number.isSafeInteger(usage?.cacheWriteInputTokens) ? usage.cacheWriteInputTokens : null;
+  const hitRate = inputTokens > 0 && cachedInputTokens !== null && cachedInputTokens >= 0 && cachedInputTokens <= inputTokens
+    ? cachedInputTokens / inputTokens : null;
+  const previous = previousSamples.at(-1);
+  const previousEffective = previous?.fork?.effective || {};
+  const currentEffective = sample?.fork?.effective || {};
+  const metadataChanges = ['model', 'provider', 'effort', 'serviceTier']
+    .filter((field) => previousEffective[field] && currentEffective[field] && previousEffective[field] !== currentEffective[field]);
+  if (previous?.reportedModel && sample.reportedModel && previous.reportedModel !== sample.reportedModel) metadataChanges.push('reportedModel');
+  const crossFamilyMismatch = Boolean(sample.crossFamilyMismatch);
+  const base = {
+    cacheScope, inputTokens, cachedInputTokens, cacheWriteInputTokens, hitRate,
+    baselineSamples: 0, baselineHitRate: null, baselineCachedInputTokens: null, baselineInputTokens: null,
+    metadataChanges, crossFamilyMismatch, routingSignal: false, severity: 'neutral',
+  };
+  if (hitRate === null) return { ...base, status: 'unavailable' };
+  if (cacheScope !== 'source_session') return { ...base, status: 'not_comparable' };
+  const current = cacheObservation(sample);
+  if (!current) return { ...base, status: 'insufficient_input' };
+  const key = cacheKey(current);
+  const baseline = previousSamples.map(cacheObservation).filter((item) => item && cacheKey(item) === key
+    && !(item.cachedInputTokens === 0 && item.cacheWriteInputTokens > 0)).slice(-CACHE_BASELINE_WINDOW);
+  base.baselineSamples = baseline.length;
+  if (baseline.length < CACHE_BASELINE_MIN) {
+    return { ...base, status: metadataChanges.length ? 'metadata_changed' : cachedInputTokens === 0 && cacheWriteInputTokens > 0 ? 'warming' : 'baseline_pending', severity: metadataChanges.length ? 'info' : 'neutral' };
+  }
+  const baselineHitRate = median(baseline.map((item) => item.hitRate));
+  const baselineCachedInputTokens = median(baseline.map((item) => item.cachedInputTokens));
+  const baselineInputTokens = median(baseline.map((item) => item.inputTokens));
+  const rateDrop = baselineHitRate - hitRate;
+  const absoluteDrop = baselineCachedInputTokens > 0 && cachedInputTokens <= baselineCachedInputTokens * 0.6;
+  const inputGrowth = inputTokens > baselineInputTokens * 1.5;
+  const writeThreshold = Math.max(1024, inputTokens * 0.15);
+  const cacheRebuild = absoluteDrop && cacheWriteInputTokens !== null && cacheWriteInputTokens >= writeThreshold;
+  const cacheDrop = rateDrop >= 0.25 && hitRate <= baselineHitRate * 0.6 && absoluteDrop && !inputGrowth && !cacheRebuild;
+  const ratioDrop = rateDrop >= 0.25 && !inputGrowth && !cacheRebuild && !cacheDrop;
+  const status = cacheRebuild ? 'cache_rebuild' : inputGrowth && rateDrop >= 0.2 ? 'input_growth'
+    : cacheDrop ? 'cache_drop' : ratioDrop ? 'ratio_drop' : metadataChanges.length ? 'metadata_changed' : 'stable';
+  const routingSignal = status === 'cache_drop' && crossFamilyMismatch
+    && ['difference_signal', 'repeated_difference'].includes(sample.outcome);
+  return {
+    ...base, status, baselineHitRate, baselineCachedInputTokens, baselineInputTokens,
+    rateDrop, absoluteDrop, inputGrowth, routingSignal,
+    severity: routingSignal ? 'danger' : status === 'cache_drop' ? 'warning'
+      : ['cache_rebuild', 'metadata_changed'].includes(status) ? 'info' : 'neutral',
+  };
+}
+
 let artifacts;
 export async function loadArtifacts() {
   if (!artifacts) artifacts = (async () => {
@@ -366,15 +466,18 @@ export async function run(args, env = process.env, receipt = null) {
       const result = analyzeGlobalOutputs([{ text: JSON.stringify(numbers), expected_count: p.count }], bank);
       const previous = recentComparable(state, p);
       const evidence = classifySample(result, state.expected, previous);
+      const familyEvidence = fingerprintFamilyEvidence(result, state.expected, evidence);
       const sample = {
         at: now, epoch: state.epoch, challenge: p.id, reportedModel: state.model, expected: state.expected,
         requestedCount: p.count, actualCount: numbers.length, countMatched: numbers.length === p.count,
         language: p.language, languageAndContextCalibrated: false,
         fork: receipt.fork,
         ...(p.confirmationId ? { confirmationId: p.confirmationId, retryIndex: p.retryIndex, retryTarget: p.retryTarget } : {}),
-        ...evidence, top3: result.results.slice(0, 3).map(({ model, probability }) => ({ model, closedSetWeight: probability })),
+        ...evidence, ...familyEvidence,
+        top3: result.results.slice(0, 3).map(({ model, family, probability }) => ({ model, family: family || null, closedSetWeight: probability })),
         numbers, sampleSha256: digest(JSON.stringify(numbers)), bankSha256: metadata.bankSha256, scorerSha256: metadata.scorerSha256,
       };
+      sample.cacheDiagnostics = analyzeCacheDiagnostics(state.samples, sample);
       state.samples.push(sample);
       state.bankSha256 = metadata.bankSha256;
       state.maxObservedGapSeconds = Math.max(state.maxObservedGapSeconds, (now - (state.lastSampleAt || state.startedAt)) / 1000);

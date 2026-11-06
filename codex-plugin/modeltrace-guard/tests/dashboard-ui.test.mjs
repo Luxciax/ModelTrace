@@ -33,7 +33,7 @@ async function fixture() {
     alerts: [], samples: [], events: [], eventCount: 0, confirmation: { status: 'active', target: 3, language: 'en', results: [] }, taskHalt: null,
   };
   const context = vm.createContext({
-    document: { getElementById: (id) => nodes[id], createElement: (tag) => new NodeDouble(tag), createTextNode: (text) => Object.assign(new NodeDouble('text'), { textContent: text }), querySelectorAll: () => [], addEventListener() {} },
+    document: { getElementById: (id) => nodes[id], createElement: (tag) => new NodeDouble(tag), createElementNS: (_namespace, tag) => new NodeDouble(tag), createTextNode: (text) => Object.assign(new NodeDouble('text'), { textContent: text }), querySelectorAll: () => [], addEventListener() {} },
     location: { hash: '#token=synthetic-ui-capability&session=synthetic-ui-task' }, URLSearchParams, AbortSignal,
     setInterval() {}, navigator: {},
     fetch: async (route, options) => {
@@ -123,6 +123,23 @@ test('task selector distinguishes enabled monitoring from stopped historical rec
   await context.refresh();
   assert.match(nodes.session.children[0].textContent, /^已停止 · 历史记录 · 合成交互测试/);
   assert.equal(nodes.runtime.textContent, '已停止监测');
+});
+
+test('dashboard renders cache baseline, routing signal and cache history column', async () => {
+  const { context, nodes, state } = await fixture();
+  state.samples = [{
+    at: 3000, epoch: 1, expected: 'gpt-5.6-sol', prediction: 'deepseek-v4-flash-0731', outcome: 'difference_signal',
+    displayOutcome: 'difference_signal', language: 'en', actualCount: 300, requestedCount: 300,
+    expectedFamily: 'gpt', predictionFamily: 'deepseek', crossFamilyMismatch: true, top3: [],
+    fork: { cacheScope: 'source_session', effective: { model: 'gpt-5.6-sol', provider: 'openai', effort: 'high', serviceTier: 'default', instructionSourcesSha256: 'same' }, usage: { inputTokens: 10000, cachedInputTokens: 2000, cacheWriteInputTokens: 0 } },
+    cacheDiagnostics: { cacheScope: 'source_session', hitRate: 0.2, baselineHitRate: 0.8, baselineSamples: 4, status: 'cache_drop', severity: 'danger', routingSignal: true, metadataChanges: [], crossFamilyMismatch: true },
+  }];
+  context.render(state);
+  assert.equal(nodes['cache-status'].textContent, '疑似路由变化');
+  assert.equal(nodes['cache-rate'].textContent, '20.0%');
+  assert.match(nodes['cache-baseline'].textContent, /80\.0%/);
+  assert.match(nodes['cache-note'].textContent, /GPT → DeepSeek/);
+  assert.equal(nodes.rows.children[0].children[4].textContent, '疑似路由变化 · 20.0%');
 });
 
 test('dashboard shows a typed sampling failure separately from a model mismatch', async () => {

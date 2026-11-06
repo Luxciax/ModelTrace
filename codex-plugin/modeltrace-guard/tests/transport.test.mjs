@@ -148,5 +148,5 @@ test('plugin manifest, package and protocol identify the same release', async ()
   assert.equal(manifest.name, packageInfo.name);
   assert.equal(manifest.version, packageInfo.version);
   assert.equal(CODEX_CLIENT_INFO.version, manifest.version);
-  assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+  assert.match(manifest.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
 });

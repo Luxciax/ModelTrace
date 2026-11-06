@@ -17,6 +17,15 @@ const outcomes = {
 };
 const eventNames = { probe_issued: '发出探针', probe_missed: '采样缺口', segment_started: '开始新分段', frequency_configured: '更新采样设置', monitoring_auto_started: '新任务自动开启监测', dashboard_auto_opened: '自动打开本地面板', dashboard_auto_open_failed: '自动打开面板失败', monitoring_stopped: '停止监测', compaction_started: '上下文压缩', interrupted: '任务被中断', session_ended: '任务结束', budget_paused: '采样数量上限暂停', agent_reported_user_notified: '智能体确认已告知', task_name_changed: '更新显示名称', codex_task_name_updated: '同步任务标题', model_label_observed: '获取声明模型', configuration_migrated: '迁移采样设置', confirmation_started: '开始异常复测', confirmation_result: '完成一次复测', confirmation_completed: '复测完成', confirmation_interrupted: '复测中断', task_halt_requested: '要求停止原任务', task_resumed: '按用户要求恢复任务' };
 const reasons = { monitoring_started: '开启监测', new_session_auto_monitoring: '新任务自动开启监测', reported_model_changed: '声明模型改变', expected_model_changed: '预期模型改变', context_compaction: '上下文压缩', context_cleared: '上下文清空', reference_bank_changed: '参考库改变', expired_or_ignored: '探针过期或未提交', late_submission: '提交超时', monitoring_stopped: '监测停止', user_interrupted: '用户中断', session_ended: '任务结束', stop_continuation_not_completed: '收尾探针未完成', comparison_changed: '复测条件改变', comparison_unavailable: '无法比较预期模型' };
+const cacheStatusNames = {
+  unavailable: '无缓存统计', not_comparable: '缓存范围不可比', insufficient_input: '输入量不足',
+  baseline_pending: '建立基线中', warming: '缓存预热', metadata_changed: '模型配置变化',
+  stable: '稳定', input_growth: '输入规模增长', ratio_drop: '命中比例下降',
+  cache_rebuild: '缓存重建', cache_drop: '缓存命中突降',
+};
+const familyNames = { gpt: 'GPT', claude: 'Claude', deepseek: 'DeepSeek', gemini: 'Gemini' };
+const formatPercent = (value) => Number.isFinite(value) ? (value * 100).toFixed(1) + '%' : '—';
+const formatTokens = (value) => Number.isSafeInteger(value) ? value.toLocaleString('zh-CN') : '—';
 const date = (at) => at ? new Date(at).toLocaleString('zh-CN', { hour12: false }) : '—';
 const time = (at) => at ? new Date(at).toLocaleTimeString('zh-CN', { hour12: false }) : '—';
 const txt = (id, text) => { $(id).textContent = text; };
@@ -92,10 +101,118 @@ function renderTrace(state) {
   }));
   txt('trace-range', `最近 ${points.length} 个检查点 · ${time(points[0].at)} — ${time(points.at(-1).at)}`);
 }
+function renderCache(state) {
+  const samples = Array.isArray(state.samples) ? state.samples : [];
+  const latest = samples.at(-1);
+  const diagnostics = latest?.cacheDiagnostics;
+  const usage = latest?.fork?.usage;
+  const label = diagnostics?.routingSignal ? '疑似路由变化' : cacheStatusNames[diagnostics?.status] || '等待缓存数据';
+  const color = diagnostics?.routingSignal || diagnostics?.severity === 'danger' ? 'bad' : diagnostics?.severity || 'neutral';
+  txt('cache-status', label); $('cache-status').className = 'pill ' + color;
+  txt('cache-rate', formatPercent(diagnostics?.hitRate));
+  txt('cache-tokens', usage ? formatTokens(usage.cachedInputTokens) + ' / ' + formatTokens(usage.inputTokens) : '—');
+  txt('cache-baseline', Number.isFinite(diagnostics?.baselineHitRate)
+    ? formatPercent(diagnostics.baselineHitRate) + ' · ' + diagnostics.baselineSamples + ' 次'
+    : diagnostics?.cacheScope === 'source_session' ? '建立中 · ' + (diagnostics.baselineSamples || 0) + ' / 3 次' : '不可比');
+  txt('cache-scope', diagnostics?.cacheScope === 'source_session' ? '沿用原任务缓存'
+    : diagnostics?.cacheScope === 'native_fork' ? '独立 Fork 范围' : '—');
+  txt('cache-caption', latest ? date(latest.at) + (usage?.cacheWriteInputTokens ? ' · 写入 ' + formatTokens(usage.cacheWriteInputTokens) + ' tokens' : '') : '等待第一个有效样本');
+
+  const cacheSeries = samples.filter((sample) => sample.cacheDiagnostics?.cacheScope === 'source_session'
+    && Number.isFinite(sample.cacheDiagnostics.hitRate));
+  const chartSource = cacheSeries.at(-1);
+  const chartKey = (sample) => {
+    const effective = sample.fork?.effective || {};
+    return JSON.stringify([sample.epoch, effective.model, effective.provider, effective.effort,
+      effective.serviceTier, effective.instructionSourcesSha256]);
+  };
+  const chartSamples = chartSource ? cacheSeries.filter((sample) => chartKey(sample) === chartKey(chartSource)).slice(-24) : [];
+  if (!chartSamples.length) inlineEmpty($('cache-chart'), '当前没有可连续比较的 source_session 缓存样本；native_fork 仅显示单次 Token，不建立跨请求基线。');
+  else {
+    const namespace = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(namespace, 'svg');
+    svg.setAttribute('viewBox', '0 0 720 160'); svg.setAttribute('class', 'cache-svg'); svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', '最近同一模型配置和上下文分段的缓存命中率趋势');
+    const add = (tag, attrs, value) => {
+      const node = document.createElementNS(namespace, tag);
+      Object.entries(attrs || {}).forEach(([name, item]) => node.setAttribute(name, String(item)));
+      if (value !== undefined) node.textContent = value;
+      svg.append(node); return node;
+    };
+    const yFor = (rate) => 130 - Math.max(0, Math.min(1, rate)) * 110;
+    for (const rate of [0, 0.5, 1]) {
+      const y = yFor(rate);
+      add('line', { x1: 44, y1: y, x2: 700, y2: y, class: 'cache-grid-line' });
+      add('text', { x: 4, y: y + 4, class: 'cache-axis-label' }, Math.round(rate * 100) + '%');
+    }
+    const baselineRate = chartSource.cacheDiagnostics.baselineHitRate;
+    if (Number.isFinite(baselineRate)) add('line', { x1: 44, y1: yFor(baselineRate), x2: 700, y2: yFor(baselineRate), class: 'cache-baseline' });
+    const coordinates = chartSamples.map((sample, index) => ({
+      sample, x: 44 + (chartSamples.length === 1 ? 0 : index * 656 / (chartSamples.length - 1)),
+      y: yFor(sample.cacheDiagnostics.hitRate),
+    }));
+    add('polyline', { points: coordinates.map((point) => point.x + ',' + point.y).join(' '), class: 'cache-line' });
+    coordinates.forEach(({ sample, x, y }) => {
+      const d = sample.cacheDiagnostics;
+      const point = add('circle', {
+        cx: x, cy: y, r: 4,
+        class: 'cache-point' + (d.routingSignal ? ' danger' : d.status === 'cache_drop' ? ' warning' : ''),
+      });
+      const title = document.createElementNS(namespace, 'title');
+      title.textContent = date(sample.at) + ' · ' + formatPercent(d.hitRate) + ' · ' + (cacheStatusNames[d.status] || d.status);
+      point.append(title);
+    });
+    add('text', { x: 44, y: 153, class: 'cache-axis-label' }, time(chartSamples[0].at));
+    add('text', { x: 700, y: 153, class: 'cache-axis-label', 'text-anchor': 'end' }, time(chartSamples.at(-1).at));
+    $('cache-chart').replaceChildren(svg);
+  }
+
+  const anomalies = samples.filter((sample) => {
+    const d = sample.cacheDiagnostics;
+    return d && (d.routingSignal || ['cache_drop', 'cache_rebuild', 'input_growth', 'ratio_drop', 'metadata_changed'].includes(d.status));
+  }).slice(-6).reverse();
+  if (!anomalies.length) inlineEmpty($('cache-events'), '尚无缓存异常记录');
+  else $('cache-events').replaceChildren(...anomalies.map((sample) => {
+    const d = sample.cacheDiagnostics;
+    const button = element('button', 'cache-event');
+    button.type = 'button';
+    const title = d.routingSignal ? '疑似路由变化' : cacheStatusNames[d.status] || d.status;
+    const families = sample.expectedFamily && sample.predictionFamily
+      ? ' · ' + (familyNames[sample.expectedFamily] || sample.expectedFamily) + ' → ' + (familyNames[sample.predictionFamily] || sample.predictionFamily) : '';
+    button.append(element('span', 'cache-event-main', date(sample.at) + ' · ' + title + families),
+      element('span', 'cache-event-meta', formatPercent(d.hitRate) + (Number.isFinite(d.baselineHitRate) ? ' / 基线 ' + formatPercent(d.baselineHitRate) : '')));
+    button.addEventListener('click', () => showDetail(sample, '缓存诊断详情'));
+    return button;
+  }));
+
+  let note = '等待缓存统计。';
+  if (!latest) note = '尚无有效指纹样本。';
+  else if (!diagnostics) note = '该历史样本没有缓存诊断字段；新探针会开始记录。';
+  else if (diagnostics.routingSignal) note = '缓存命中率与缓存 Token 同时突降，并伴随 ' + (familyNames[sampleFamily(diagnostics, latest)] || sampleFamily(diagnostics, latest) || '跨家族') + ' 强指纹差异，标记为疑似路由变化。';
+  else if (diagnostics.status === 'cache_drop') note = '缓存命中率和缓存 Token 均显著低于同会话基线，需要结合上下文及其他指标排查。';
+  else if (diagnostics.status === 'cache_rebuild') note = '缓存写入量明显增加，可能正在重建缓存或改变前缀；不视为模型切换。';
+  else if (diagnostics.status === 'input_growth') note = '输入规模明显增长，命中率下降但缓存命中绝对量没有同步下降，按输入增长解释。';
+  else if (diagnostics.status === 'ratio_drop') note = '命中率下降，但缓存命中绝对量未达到突降阈值，暂列为弱信号。';
+  else if (diagnostics.status === 'metadata_changed') note = 'Codex 声明配置发生变化：' + (diagnostics.metadataChanges || []).join('、') + '；已重新建立缓存基线。';
+  else if (diagnostics.status === 'baseline_pending') note = '至少需要 3 次同缓存会话、同模型配置的有效样本建立基线；当前 ' + diagnostics.baselineSamples + ' 次。';
+  else if (diagnostics.status === 'warming') note = '缓存正在建立或预热，等待后续样本。';
+  else if (diagnostics.status === 'not_comparable') note = '当前使用 native_fork 独立缓存范围，不能与原任务 source_session 做连续比较。';
+  else if (diagnostics.status === 'insufficient_input') note = '输入 Token 少于 1024 或缓存计数不合法，暂不参与基线计算。';
+  else if (diagnostics.status === 'unavailable') note = 'Codex 未返回有效缓存 Token 统计。';
+  else if (diagnostics.status === 'stable') note = '缓存命中率处于同会话历史基线范围。';
+  txt('cache-note', note + ' 缓存异常是辅助证据，不是后端身份认证，也不会单独触发自动停工。');
+}
+function sampleFamily(diagnostics, sample) {
+  if (sample.expectedFamily && sample.predictionFamily) return (familyNames[sample.expectedFamily] || sample.expectedFamily) + ' → ' + (familyNames[sample.predictionFamily] || sample.predictionFamily);
+  return diagnostics.crossFamilyMismatch ? '跨家族' : '';
+}
+
 function renderHistory(state) {
   const filter = $('filter').value;
   const records = archivePage ? archivePage.rows.map((r) => archiveKind === 'samples' ? { ...r, type: 'sample' } : archiveKind === 'alerts' ? { ...r, type: r.level, model: `${r.expected} → ${r.prediction}` } : r) : [...state.samples.map((s) => ({ ...s, type: 'sample' })), ...state.events.filter((e) => !['probe_scored', 'model_mismatch_alert'].includes(e.type))].sort((a, b) => b.at - a.at);
-  const filtered = records.filter((r) => filter === 'all' || (filter === 'gap' ? r.type === 'probe_missed' : r.type === 'sample' && r.expectedWeight !== null && r.expected && r.expected !== r.prediction));
+  const filtered = records.filter((r) => filter === 'all' ? true : filter === 'gap' ? r.type === 'probe_missed'
+    : filter === 'cache' ? r.type === 'sample' && ['cache_drop', 'cache_rebuild', 'input_growth', 'ratio_drop', 'metadata_changed'].includes(r.cacheDiagnostics?.status)
+      : r.type === 'sample' && r.expectedWeight !== null && r.expected && r.expected !== r.prediction);
   const rows = filtered.slice(0, 100).map((record) => {
     const row = element('tr');
     const at = element('td', 'table-time'); const button = element('button', 'row-detail', date(record.at)); button.type = 'button'; button.addEventListener('click', () => showDetail(record)); at.append(button);
@@ -104,9 +221,10 @@ function renderHistory(state) {
     const baseText = record.type === 'sample' ? `${record.expected || '当时未获取'} → ${record.prediction || '未知'}` : record.name || record.model || reasons[record.reason] || record.reason || '—';
     const diagnosticText = diagnosticSummary(record.diagnostic);
     model.textContent = diagnosticText ? `${baseText} · ${diagnosticText}` : baseText;
-    row.append(at, outcome, model, element('td', '', languageNames[record.language] || record.language || '—'), element('td', '', `#${record.epoch}`)); return row;
+    const cache = record.type === 'sample' && record.cacheDiagnostics ? (record.cacheDiagnostics.routingSignal ? '疑似路由变化' : cacheStatusNames[record.cacheDiagnostics.status] || '—') + ' · ' + formatPercent(record.cacheDiagnostics.hitRate) : '—';
+    row.append(at, outcome, model, element('td', '', languageNames[record.language] || record.language || '—'), element('td', 'cache-table-cell', cache), element('td', '', `#${record.epoch}`)); return row;
   });
-  if (!rows.length) { const row = element('tr'); const cell = element('td', 'empty-inline', '没有符合筛选条件的记录'); cell.colSpan = 5; row.append(cell); rows.push(row); }
+  if (!rows.length) { const row = element('tr'); const cell = element('td', 'empty-inline', '没有符合筛选条件的记录'); cell.colSpan = 6; row.append(cell); rows.push(row); }
   $('rows').replaceChildren(...rows);
   txt('history-note', `显示${archivePage ? '当前页' : '最近'} ${Math.min(filtered.length, 100)} 条筛选记录${archivePage ? ` · 此类共 ${archivePage.total} 条` : ''}。点击时间查看详情；选择完整历史可逐页读取更早记录。`);
   $('history-more').disabled = !archivePage?.nextBefore;
@@ -137,7 +255,7 @@ function render(state) {
   txt('mismatches', state.mismatchAlerts); txt('alert-note', `${state.differenceSignals} 次强差异 · ${state.pendingNotifications} 条待告知`);
   txt('missed', state.missedProbes + (state.pendingExpired ? 1 : 0));
   txt('hook-note', state.hookObserved ? `最近工作 hook ${time(state.lastWorkHookAt)}` : state.hookState === 'idle' ? `暂无新工作工具 · 最近 ${date(state.lastWorkHookAt)}` : state.hookState === 'awaiting_background_hook' ? '已观察到工作工具，等待后台 hook 验证' : '等待当前运行中的工作工具验证 hooks');
-  renderConfirmation(state); renderTrace(state); renderAlerts(state); renderHistory(state);
+  renderConfirmation(state); renderTrace(state); renderCache(state); renderAlerts(state); renderHistory(state);
   const forkFailure = state.forkHealth?.ready === false && state.forkHealth.error ? state.forkHealth : null;
   const failureNote = forkFailure ? ` · 检测未完成：${forkFailure.error}${forkFailure.diagnostic ? ` [${diagnosticSummary(forkFailure.diagnostic)}]` : ''}` : '';
   txt('fork-note', `${state.snapshot ? `冻结快照 ${state.snapshot.sha256?.slice(0, 12) || '等待确认'}…` : '当前无保留中的基准快照'}${state.forkCleanup ? ` · 最近清理：${({ pending: '待删除', deleted: '已删除', blocked: '需检查' })[state.forkCleanup.status] || state.forkCleanup.status}` : ''}${state.forkCleanup?.error ? ` · ${state.forkCleanup.error}` : ''}${failureNote}`);
