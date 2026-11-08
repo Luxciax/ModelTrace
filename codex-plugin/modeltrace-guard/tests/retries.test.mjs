@@ -6,7 +6,7 @@ import path from 'node:path';
 import {
   classifySample, isMismatch, issue, newState, publicSample, readState, sessionPath, updateConfirmation, validateConfig, withState,
 } from '../scripts/state.mjs';
-import { handleHook, loadArtifacts } from '../scripts/guard.mjs';
+import { confirmationOutcomeStatus, handleHook, loadArtifacts, userControlStatus } from '../scripts/guard.mjs';
 import { run } from './fixture-runner.mjs';
 
 // Isolated synthetic fixtures test the control protocol, NOT model identity or
@@ -77,6 +77,31 @@ async function submitPending(dir) {
   assert.ok(s.pending);
   return command(dir, 'submit', '--challenge', s.pending.id, '--numbers', numbers);
 }
+
+test('user-facing confirmation status shows progress and ETA without internal execution details', () => {
+  const state = newState('private-session', 0);
+  state.enabled = true;
+  state.confirmation = {
+    id: 'private-confirmation', status: 'active', target: 3,
+    results: [{ challenge: 'retry-one', at: 90000, prediction: 'gpt-5.6-luna', mismatch: false }],
+  };
+  state.events = [
+    { type: 'probe_issued', at: 1000, challenge: 'private-confirmation' },
+    { type: 'probe_scored', at: 41000, challenge: 'private-confirmation' },
+    { type: 'probe_issued', at: 50000, challenge: 'retry-one' },
+    { type: 'probe_scored', at: 90000, challenge: 'retry-one' },
+  ];
+  state.pending = { id: 'private-retry-two', confirmationId: 'private-confirmation', at: 100000, expiresAt: 280000 };
+  const normal = userControlStatus(state, 120000);
+  assert.match(normal, /1\/3/); assert.match(normal, /原任务已暂时暂停/); assert.match(normal, /预计还需约 1 分钟/);
+  assert.doesNotMatch(normal, /private-|wait --session|node |confirmation/i);
+  const slow = userControlStatus(state, 180000);
+  assert.match(slow, /耗时比通常更长/); assert.doesNotMatch(slow, /private-|wait --session|node /);
+  state.confirmation = { ...state.confirmation, status: 'interrupted', reason: 'fork_probe_failed' };
+  state.pending = null;
+  const interrupted = confirmationOutcomeStatus(state);
+  assert.match(interrupted, /1\/3/); assert.match(interrupted, /缺失结果不会视为模型不匹配/);
+});
 
 test('default three extra retries follow immediate notification and end in a persistent halt', async (t) => {
   const { dir, initial } = await startMismatch(t);
@@ -269,20 +294,25 @@ test('halt survives acknowledgement, hooks, stop/start and configure until expli
   await acknowledge(dir); const result = await submitPending(dir);
   const halt = result.taskHalt;
   const firstStop = await handleHook(event('Stop'), dir);
-  assert.equal(firstStop.decision, 'block'); assert.match(firstStop.reason, /STOP THE ORIGINAL TASK NOW/);
+  assert.equal(firstStop.decision, 'block'); assert.match(firstStop.reason, /模型复核已完成（1\/1）/);
+  assert.doesNotMatch(firstStop.reason, /STOP THE ORIGINAL TASK|wait --session|halt/);
   const secondStop = await handleHook(event('Stop', { stop_hook_active: true }), dir);
-  assert.equal(secondStop.decision, undefined);
+  assert.equal(secondStop.decision, undefined); assert.match(secondStop.systemMessage, /模型复核已完成（1\/1）/);
   await acknowledge(dir);
   for (const name of ['PostToolUse', 'SessionStart', 'UserPromptSubmit', 'Stop']) {
     const output = await handleHook(event(name, { turn_id: `halt-${name}`, model: 'new-declared-model' }), dir);
-    assert.match(output.systemMessage, /STOP THE ORIGINAL TASK NOW/);
+    assert.match(output.systemMessage, /模型复核已完成（1\/1）/);
+    assert.doesNotMatch(output.systemMessage, /STOP THE ORIGINAL TASK|wait --session|halt/);
+    if (name !== 'Stop') assert.match(output.hookSpecificOutput.additionalContext, /STOP THE ORIGINAL TASK NOW/);
   }
   for (const [name, args] of [['configure', ['--retry-count', '8']], ['stop', []], ['start', []]]) {
     const changed = await command(dir, name, ...args);
     assert.equal(changed.status, 'task_halted'); assert.equal(changed.taskHalt.id, halt.id); assert.equal(changed.pending, null);
   }
   await command(dir, 'stop');
-  assert.match((await handleHook(event('Stop'), dir)).systemMessage, /STOP THE ORIGINAL TASK NOW/);
+  const stopped = await handleHook(event('Stop'), dir);
+  assert.match(stopped.systemMessage, /模型复核已完成（1\/1）/);
+  assert.doesNotMatch(stopped.systemMessage, /STOP THE ORIGINAL TASK|wait --session|halt/);
   await assert.rejects(() => command(dir, 'resume'), /current halt ID/);
   await assert.rejects(() => command(dir, 'resume', '--halt', 'wrong'), /current halt ID/);
   const before = await readState(dir, session);

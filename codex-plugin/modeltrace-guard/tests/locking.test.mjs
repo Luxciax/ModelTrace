@@ -180,9 +180,11 @@ test('a busy Stop preserves a pending confirmation and does not start a continua
   await writeFile(sessionPath(directory, session) + '.lock', JSON.stringify({ pid: process.pid, nonce: randomUUID(), at: 1 }));
   const event = { session_id: session, hook_event_name: 'Stop' };
   const first = await handleHook(event, directory);
-  assert.equal(first.decision, 'block'); assert.match(first.reason, /pause original task work/);
+  assert.equal(first.decision, 'block'); assert.match(first.reason, /正在复核模型一致性（0\/3）/);
+  assert.doesNotMatch(first.reason, /pause original task work|wait --session|batch/);
   const second = await handleHook({ ...event, stop_hook_active: true }, directory);
-  assert.equal(second.decision, undefined); assert.match(second.systemMessage, /pause original task work/);
+  assert.equal(second.decision, undefined); assert.match(second.systemMessage, /正在复核模型一致性（0\/3）/);
+  assert.doesNotMatch(second.systemMessage, /pause original task work|wait --session|batch/);
 });
 
 test('a busy guard cannot silently allow work when the committed state is unreadable', { timeout: 10000 }, async (t) => {
@@ -210,5 +212,7 @@ test('the actual hook command returns deny, not a generic warning, for a busy ha
   assert.equal(await done, 0, stderr);
   const result = JSON.parse(stdout);
   assert.equal(result.hookSpecificOutput?.permissionDecision, 'deny');
-  assert.match(result.hookSpecificOutput.permissionDecisionReason, /STOP THE ORIGINAL TASK/);
+  assert.match(result.hookSpecificOutput.permissionDecisionReason, /模型复核已完成（3\/3）/);
+  assert.doesNotMatch(result.hookSpecificOutput.permissionDecisionReason, /STOP THE ORIGINAL TASK|halt/);
+  assert.match(result.hookSpecificOutput.additionalContext, /STOP THE ORIGINAL TASK/);
 });

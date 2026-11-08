@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { pendingAlerts, userNotice } from './alerts.mjs';
-import { controlContext, handleHook, notificationContext, submitForkResult } from './guard.mjs';
+import { confirmationOutcomeStatus, controlContext, handleHook, notificationContext, submitForkResult, userControlStatus } from './guard.mjs';
 import { runForkProbe } from './fork-runner.mjs';
 import { BACKGROUND_STATE_LOCK, expirePending, isPendingExpired, processAlive, readState, record, withState } from './state.mjs';
 import { summarize } from './status.mjs';
@@ -28,15 +28,16 @@ async function backgroundNotice(event, directory, session, confirmationId) {
       for (const alert of alerts) {
         alert.deliveryCount += 1; alert.lastDeliveredAt = Date.now(); alert.lastDeliveryTurn = state.turn || 'no-turn';
       }
-      return injected(event, notificationContext(state, directory, alerts), alerts.map(userNotice).join('\n'));
+      const visible = [alerts.map(userNotice).join('\n'), userControlStatus(state)].filter(Boolean).join('\n');
+      return injected(event, notificationContext(state, directory, alerts), visible);
     }
-    if (state.taskHalt) return injected(event, controlContext(state, directory));
+    if (state.taskHalt) return injected(event, controlContext(state, directory), userControlStatus(state));
     if (confirmationId && state.confirmation?.id === confirmationId) {
-      if (state.confirmation.status === 'active') return injected(event, controlContext(state, directory));
+      if (state.confirmation.status === 'active') return injected(event, controlContext(state, directory), userControlStatus(state));
       const context = state.confirmation.status === 'completed'
-        ? 'ModelTrace Guard: background confirmation completed; not all retries mismatched. Explain the retry candidates to the user, then continue the original task if it is still requested.'
-        : 'ModelTrace Guard: background confirmation was interrupted; missing results are not matches or mismatches. Report the monitoring gap and follow the current user request.';
-      return injected(event, context + '\n' + JSON.stringify(state.confirmation));
+        ? 'ModelTrace Guard INTERNAL CONTROL: background confirmation completed; not all retries mismatched. Continue the original task if it is still requested. Do not expose confirmation IDs or internal execution details.'
+        : 'ModelTrace Guard INTERNAL CONTROL: background confirmation was interrupted; missing results are not matches or mismatches. Report only the user-facing monitoring gap and follow the current user request.';
+      return injected(event, context, confirmationOutcomeStatus(state));
     }
     return {};
   }, BACKGROUND_STATE_LOCK);
@@ -116,6 +117,7 @@ export async function waitForConfirmation(directory, session, id, { timeoutMs = 
   } while (true);
   return { ...summarize(state, directory), waiting: state.enabled && state.confirmation.status === 'active' && !pendingAlerts(state).length,
     notificationContext: notificationContext(state, directory), controlContext: controlContext(state, directory),
+    userStatus: userControlStatus(state) || confirmationOutcomeStatus(state),
     agentAction: state.taskHalt ? 'stop_and_notify_user' : pendingAlerts(state).length ? 'notify_user_now'
       : state.confirmation.status === 'active' ? 'wait_for_background_retries'
         : state.confirmation.status === 'completed' ? 'confirmation_completed' : 'report_coverage_gap' };

@@ -68,9 +68,11 @@ test('Stop gives at most one notification continuation, with a visible fallback 
   const dir = await fixture(t);
   await withState(dir, session, (s) => { s.enabled = false; });
   const first = await handleHook(event('Stop'), dir, 1001);
-  assert.equal(first.decision, 'block'); assert.ok(first.reason.includes('NOTIFY THE USER NOW'));
+  assert.equal(first.decision, 'block'); assert.ok(first.reason.includes('ModelTrace Guard 提醒'));
+  assert.doesNotMatch(first.reason, /NOTIFY THE USER NOW|acknowledge --session|wait --session/);
   const second = await handleHook(event('Stop', { stop_hook_active: true }), dir, 1002);
   assert.equal(second.decision, undefined); assert.ok(second.systemMessage.includes('ModelTrace Guard 提醒'));
+  assert.doesNotMatch(second.systemMessage, /NOTIFY THE USER NOW|acknowledge --session|wait --session/);
   const third = await handleHook(event('Stop'), dir, 1003); assert.equal(third.decision, undefined);
   assert.equal(pendingAlerts(await readState(dir, session)).length, 1);
 });
