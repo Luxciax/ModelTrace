@@ -3,6 +3,7 @@ import { pendingAlerts, userNotice } from './alerts.mjs';
 import { controlContext, handleHook, notificationContext, submitForkResult } from './guard.mjs';
 import { runForkProbe } from './fork-runner.mjs';
 import { BACKGROUND_STATE_LOCK, expirePending, isPendingExpired, processAlive, readState, record, withState } from './state.mjs';
+import { readGlobalSettings } from './settings.mjs';
 import { summarize } from './status.mjs';
 
 export const BACKGROUND_EVENTS = ['SessionStart', 'UserPromptSubmit', 'PostToolUse'];
@@ -55,7 +56,7 @@ export async function handleBackgroundHook(event, directory, env = process.env, 
   if (event.hook_event_name === 'SessionStart' && event.source === 'startup') {
     const state = await readState(directory, event.session_id);
     const autoStarted = state?.events.some((entry) => entry.type === 'monitoring_auto_started' && entry.at === state.lastHookAt);
-    if (autoStarted) {
+    if (autoStarted && (await readGlobalSettings(directory)).autoOpenDashboardOnNewSession) {
       try {
         const launchDashboard = dependencies.launchDashboard || (await import('./dashboard.mjs')).launchDashboard;
         const dashboard = await launchDashboard(directory, event.session_id, { autoOpen: true });

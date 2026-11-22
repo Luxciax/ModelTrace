@@ -38,7 +38,10 @@ function renderGlobalSettings(settings) {
   globalSettings = settings;
   $('auto-monitor-new').checked = Boolean(settings.autoMonitorNewSessions);
   $('auto-monitor-new').disabled = false;
+  $('auto-open-dashboard').checked = Boolean(settings.autoOpenDashboardOnNewSession);
+  $('auto-open-dashboard').disabled = false;
   txt('auto-monitor-status', settings.autoMonitorNewSessions ? '已开启 · 以后新建会话自动进入监测' : '已关闭 · 以后新建会话保持未监测');
+  txt('auto-open-dashboard-status', settings.autoOpenDashboardOnNewSession ? '已开启 · 自动监测的新会话会打开面板' : '已关闭 · 不再自动弹出浏览器');
 }
 function showDetail(record, title = '检查点详情') { txt('detail-title', title); txt('detail-body', JSON.stringify(record, null, 2)); $('detail').showModal(); }
 async function api(route, body) {
@@ -279,7 +282,7 @@ function failure(error) {
   txt('error', error.message); $('error').hidden = false;
   txt('connection', '连接异常 · 显示的可能是旧记录'); $('connection').className = 'connection offline';
   $('save').disabled = true; $('stop').disabled = true;
-  $('rename-task').disabled = true; $('auto-monitor-new').disabled = true;
+  $('rename-task').disabled = true; $('auto-monitor-new').disabled = true; $('auto-open-dashboard').disabled = true;
   txt('runtime', '状态未更新'); $('runtime').className = 'pill warning';
 }
 async function refresh() {
@@ -319,15 +322,17 @@ for (const [code, name] of Object.entries(languageNames)) {
   label.append(input, document.createTextNode(name)); $('languages').append(label);
 }
 $('refresh').addEventListener('click', refresh);
-$('auto-monitor-new').addEventListener('change', async () => {
-  const input = $('auto-monitor-new'), requested = input.checked;
-  input.disabled = true; txt('auto-monitor-status', '正在保存…');
-  try { renderGlobalSettings(await api('/api/settings', { autoMonitorNewSessions: requested })); }
+async function saveGlobalSwitch(inputId, statusId, key) {
+  const input = $(inputId), requested = input.checked;
+  input.disabled = true; txt(statusId, '正在保存…');
+  try { renderGlobalSettings(await api('/api/settings', { [key]: requested })); }
   catch (error) {
-    input.checked = Boolean(globalSettings?.autoMonitorNewSessions);
-    txt('auto-monitor-status', error.message);
+    input.checked = Boolean(globalSettings?.[key]);
+    txt(statusId, error.message);
   } finally { input.disabled = false; }
-});
+}
+$('auto-monitor-new').addEventListener('change', () => void saveGlobalSwitch('auto-monitor-new', 'auto-monitor-status', 'autoMonitorNewSessions'));
+$('auto-open-dashboard').addEventListener('change', () => void saveGlobalSwitch('auto-open-dashboard', 'auto-open-dashboard-status', 'autoOpenDashboardOnNewSession'));
 $('session').addEventListener('change', () => { selected = $('session').value; dirty = false; archivePage = null; archiveKind = 'recent'; $('history-kind').value = 'recent'; txt('save-message', ''); render(null); void refresh(); });
 $('history-kind').addEventListener('change', () => { archiveKind = $('history-kind').value; archivePage = null; if (archiveKind === 'recent') { if (snapshot) renderHistory(snapshot); } else void loadHistory(); });
 $('history-more').addEventListener('click', () => void loadHistory(archivePage?.nextBefore));

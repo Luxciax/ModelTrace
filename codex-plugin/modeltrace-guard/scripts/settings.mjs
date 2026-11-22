@@ -3,13 +3,13 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 const SETTINGS_FILE = '_settings.json';
-export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({ autoMonitorNewSessions: true });
+export const DEFAULT_GLOBAL_SETTINGS = Object.freeze({ autoMonitorNewSessions: true, autoOpenDashboardOnNewSession: true });
 
 function validateSettings(value) {
   if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error('Global settings must be an object');
   const fields = Object.getOwnPropertyNames(value);
   if (fields.some((field) => !Object.hasOwn(DEFAULT_GLOBAL_SETTINGS, field))) throw new Error('Unknown global setting');
-  if (Object.hasOwn(value, 'autoMonitorNewSessions') && typeof value.autoMonitorNewSessions !== 'boolean') throw new Error('autoMonitorNewSessions must be boolean');
+  for (const field of fields) if (typeof value[field] !== 'boolean') throw new Error(`${field} must be boolean`);
   return { ...DEFAULT_GLOBAL_SETTINGS, ...value };
 }
 
@@ -20,7 +20,8 @@ export async function readGlobalSettings(directory) {
 }
 
 export async function writeGlobalSettings(directory, patch) {
-  if (!patch || Array.isArray(patch) || typeof patch !== 'object' || Object.getOwnPropertyNames(patch).length !== 1 || !Object.hasOwn(patch, 'autoMonitorNewSessions')) throw new Error('Only autoMonitorNewSessions may be changed');
+  const fields = patch && !Array.isArray(patch) && typeof patch === 'object' ? Object.getOwnPropertyNames(patch) : [];
+  if (fields.length !== 1 || !Object.hasOwn(DEFAULT_GLOBAL_SETTINGS, fields[0])) throw new Error('Only one supported global setting may be changed');
   const next = validateSettings({ ...(await readGlobalSettings(directory)), ...patch });
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const filename = path.join(directory, SETTINGS_FILE);
