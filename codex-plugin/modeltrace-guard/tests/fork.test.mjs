@@ -641,7 +641,8 @@ test('matching background retries advance automatically and release the work gua
   assert.equal(state.samples.length, 4); assert.equal(state.alerts.length, 1);
   assert.equal(f.counts().createdBase, 1);
   assert.ok(output.hookSpecificOutput.additionalContext.includes('background confirmation completed'));
-  assert.equal(output.systemMessage, undefined); assert.ok(!JSON.stringify(output).includes(matching));
+  assert.match(output.systemMessage, /模型复核完成（3\/3）/); assert.ok(!JSON.stringify(output).includes(matching));
+  assert.doesNotMatch(output.systemMessage, /confirmation|challenge|wait --session|node /i);
   assert.deepEqual(await handleHook(backgroundEvent(f, { hook_event_name: 'PreToolUse' }), f.directory), {});
   assert.equal((await waitForConfirmation(f.directory, f.session, before.confirmation.id)).agentAction, 'confirmation_completed');
 });
